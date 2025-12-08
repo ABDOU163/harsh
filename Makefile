@@ -1,12 +1,12 @@
 CC = gcc
-CFLAGS = -Wall -g
+CFLAGS = -Wall -g -I./include
 
 # 1. Edit this line to change the output name
-TARGET = shell
+TARGET = shell_executable.bin
 
 # 2. Edit this line to add/remove .c files
 # All listed files are compiled and linked in one step.
-SRCS = *.c
+SRCS = main.c src/*.c
 
 # Default rule: Build the executable
 all: $(TARGET)

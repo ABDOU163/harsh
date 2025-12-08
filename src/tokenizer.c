@@ -14,7 +14,7 @@ void remove_trailing_spaces(char *str) {
 }
 
 
-char** tokenize(char *command, bool *is_special, int *which_special) {
+char** tokenize_with_distinction(char *command, bool *is_special, int *which_special) {
     remove_trailing_spaces(command);
     char **tokens = malloc(64 * sizeof(char*));
     char *token;
@@ -48,7 +48,3 @@ char** tokenize(char *command, bool *is_special, int *which_special) {
     return tokens;
 }
 
-
-void free_tokens(char **tokens) {
-    free(tokens);
-}

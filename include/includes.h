@@ -4,7 +4,4 @@
 #include <stdbool.h>
 #include "globals.h"
 #include "tokenizer.h"
-int main(){
-    puts("negsu");
-    return 0;
-}
+#include "standard.h"
