@@ -17,30 +17,44 @@ void execute(char *command){
     } else{
         // Handle special commands
     }
+    free(tokens);
 }
 
-void display_promt(){
+void display_prompt(){
     char hostname[256];
     gethostname(hostname, sizeof(hostname));
     char *username= getenv("LOGNAME");
     char cwd[256];
     getcwd(cwd, 256);
-    printf("%s@%s:%s$ ", username, hostname, cwd);
+
+    // checking so /home/username = ~
+    char *temp=cwd;
+    char *home = getenv("HOME");
+    int home_len = strlen(home);
+    bool is_home = true;
+    int i=0;
+    while (is_home && i<home_len){
+        if (cwd[i] != home[i]){
+            is_home = false;
+        } else {
+            i++;
+        }
+    }
+    if (is_home){
+        temp+= i-1;
+        *temp = '~';
+    }
+
+    printf("%s@%s:%s$ ", username, hostname, temp);
 }
-// ------------------------------
-// Test main
-// int main(){
-//     printf("\033[2J\033[H");
-// }
-// ------------------------------
 
 
-int main(){
+int real_main(){
     char command[256];
     setvbuf(stdout, NULL, _IONBF, 0);
     while (true)
     {
-        display_promt();
+        display_prompt();
         if (fgets(command, sizeof(command), stdin) == NULL) {
             perror("Error reading command");
             continue;
@@ -49,4 +63,18 @@ int main(){
     }
     
     return 0;
+}
+
+
+// ------------------------------
+// Test main
+int test_main(){
+    
+    return 0;
+}
+// ------------------------------
+
+
+int main(int argc, char *argv[], char *envp[]){
+    return real_main();
 }
