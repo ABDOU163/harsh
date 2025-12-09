@@ -7,6 +7,7 @@
 #include <sys/types.h>
 
 
+
 void execute(char *command){
     bool is_special = false;
     int which_special = -1;
@@ -18,13 +19,28 @@ void execute(char *command){
     }
 }
 
+void display_promt(){
+    char hostname[256];
+    gethostname(hostname, sizeof(hostname));
+    char *username= getenv("LOGNAME");
+    char cwd[256];
+    getcwd(cwd, 256);
+    printf("%s@%s:%s$ ", username, hostname, cwd);
+}
+// ------------------------------
+// Test main
+// int main(){
+//     printf("\033[2J\033[H");
+// }
+// ------------------------------
+
 
 int main(){
     char command[256];
     setvbuf(stdout, NULL, _IONBF, 0);
     while (true)
     {
-        printf("Enter command: ");
+        display_promt();
         if (fgets(command, sizeof(command), stdin) == NULL) {
             perror("Error reading command");
             continue;
