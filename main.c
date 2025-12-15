@@ -87,7 +87,7 @@ void test_main(){
         close(fd[1]);
         close(fd[0]);
 
-        execlp("wc", "wc", "-l", NULL);
+        execlp("grep", "grep", "src", NULL);
     }
 
     // parent
@@ -96,8 +96,8 @@ void test_main(){
 
     wait(NULL);
     wait(NULL);
-    
-    return;
+
+    return ;
 }
 // ------------------------------
 

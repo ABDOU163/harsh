@@ -19,7 +19,7 @@ void cd_handler(char **tokens){
         return;
     }
     
-    if (!strcmp(tokens[1], "~")){
+    if (strcmp(tokens[1], "~") == 0){
         path = getenv("HOME");
         if (path == NULL) {
             fprintf(stderr, "cd: HOME environment variable not set\n");
@@ -39,10 +39,10 @@ void cd_handler(char **tokens){
 }
 
 void standard_command_run(char **tokens){
-    if (!strcmp(tokens[0], "exit")){
+    if (strcmp(tokens[0], "exit")==0){
         exit(0);
     }
-    if (!strcmp(tokens[0], "cd")){
+    if (strcmp(tokens[0], "cd")==0){
         cd_handler(tokens);
         return;
     }
@@ -63,4 +63,5 @@ void standard_command_run(char **tokens){
         wait(NULL);
 
     }
+    return;
 }
