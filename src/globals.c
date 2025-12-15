@@ -6,3 +6,4 @@
 
 
 char *special_commands[11] = {"|", "&", ";", "&&", "||", ">", ">>", "<", "2>", "2>>", NULL};
+const int MAX_TOKENS = 64;

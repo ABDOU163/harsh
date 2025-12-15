@@ -5,16 +5,17 @@
 #include "includes.h"
 #include <unistd.h>
 #include <sys/types.h>
-
+#include <fcntl.h>
+#include <sys/wait.h>
 
 void execute(char *command){
     bool is_special = false;
-    int which_special = -1;
-    char **tokens = tokenize_with_distinction(command, &is_special, &which_special);
+    char **tokens = tokenize(command, &is_special);
     if (is_special == false){
         standard_command_run(tokens);
     } else{
-        // Handle special commands
+        // to change later
+        special_commands_run(tokens);
     }
     free(tokens);
 }
@@ -67,14 +68,41 @@ int real_main(){
 
 // ------------------------------
 // Test main
-int test_main(){
+void test_main(){
+    int fd[2];
+    pipe(fd);  // fd[0] = read end, fd[1] = write end
+
+    if (fork() == 0) {
+        // child 1: producer
+        dup2(fd[1], 1);   // stdout -> pipe write end
+        close(fd[0]);
+        close(fd[1]);
+
+        execlp("ls", "ls", NULL);
+    }
+
+    if (fork() == 0) {
+        // child 2: consumer
+        dup2(fd[0], 0);   // stdin -> pipe read end
+        close(fd[1]);
+        close(fd[0]);
+
+        execlp("wc", "wc", "-l", NULL);
+    }
+
+    // parent
+    close(fd[0]);
+    close(fd[1]);
+
+    wait(NULL);
+    wait(NULL);
     
-      
-    return 0;
+    return;
 }
 // ------------------------------
 
 
 int main(int argc, char *argv[], char *envp[]){
-    return real_main();
+    real_main();
+    return 0;
 }

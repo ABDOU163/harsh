@@ -14,12 +14,12 @@ void remove_trailing_spaces(char *str) {
 }
 
 
-char** tokenize_with_distinction(char *command, bool *is_special, int *which_special) {
+char** tokenize(char *command, bool *is_special) {
     remove_trailing_spaces(command);
-    char **tokens = malloc(64 * sizeof(char*));
+    char **tokens = malloc(MAX_TOKENS * sizeof(char*));
+    *is_special = false;
     char *token;
     int position = 0;
-
     if (!tokens) {
         fprintf(stderr, "Allocation error\n");
         exit(EXIT_FAILURE);
@@ -27,17 +27,18 @@ char** tokenize_with_distinction(char *command, bool *is_special, int *which_spe
 
     token = strtok(command, " \t\r\n");
     while (token != NULL) {
-        for (int j=0 ; special_commands[j] != NULL ; j++){
-            if (strcmp(token, special_commands[j]) == 0){
-                *is_special = true;
-                *which_special = j;
-                break;
+        if (!(*is_special)){
+            for (int j=0 ; special_commands[j] != NULL ; j++){
+                if (strcmp(token, special_commands[j]) == 0){
+                    *is_special = true;
+                    break;
+                }
             }
         }
         tokens[position] = token;
         position++;
 
-        if (position >= 64) {
+        if (position >= MAX_TOKENS) {
             fprintf(stderr, "Too many tokens\n");
             exit(EXIT_FAILURE);
         }
