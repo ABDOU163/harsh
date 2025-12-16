@@ -58,10 +58,10 @@ void standard_command_run(char **tokens){
         // If execvp returns, there was an error
         perror(tokens[0]);
         exit(EXIT_FAILURE);
-    } else {
-        // Parent process
-        wait(NULL);
+    } 
+    
+    // Parent process
+    wait(NULL);
 
-    }
     return;
 }

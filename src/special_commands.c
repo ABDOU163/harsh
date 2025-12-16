@@ -10,6 +10,7 @@
 void handle_pipe(char **left_cmd, char **right_cmd){
     int fd[2];/*fd[0] for read and fd[1] for write*/
     pid_t p;
+    puts("entered pipe handler");
     if (pipe(fd) == -1){
         perror("pipefd: ");
         return;
@@ -52,8 +53,8 @@ void handle_pipe(char **left_cmd, char **right_cmd){
 
     close(fd[0]);
     close(fd[1]);
-    while(wait(NULL) != -1);
-
+    wait(NULL);
+    wait(NULL);
     return;
 
 
@@ -79,7 +80,7 @@ void special_command_run(char **tokens, int which_special){
 
     
     // special command function choosing
-    if (strcmp(special_commands[which_special], "|") == 0){
+    if (strcmp(tokens[which_special], "|") == 0){
         handle_pipe(left_cmd, right_cmd);
     } else{
         // to be continued
