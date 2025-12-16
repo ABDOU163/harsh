@@ -10,13 +10,11 @@
 void handle_pipe(char **left_cmd, char **right_cmd){
     int fd[2];/*fd[0] for read and fd[1] for write*/
     pid_t p;
-    puts("entered pipe handler");
     if (pipe(fd) == -1){
         perror("pipefd: ");
         return;
     }
-    dup2(fd[1], 1);
-    dup2(fd[0], 0);
+    
 
     p=fork();
     if (p < 0) {
@@ -24,14 +22,15 @@ void handle_pipe(char **left_cmd, char **right_cmd){
         exit(EXIT_FAILURE);
 
     } else if (p==0){
-        // dup2(fd[1], 1);
+        dup2(fd[1], 1);
 
         close(fd[0]);
         close(fd[1]);
 
-        execvp(left_cmd[0], left_cmd);
-        perror(left_cmd[0]);
-        exit(EXIT_FAILURE);
+        exec_standard(left_cmd);
+        // execvp(left_cmd[0], left_cmd);
+        // perror(left_cmd[0]);
+        // exit(EXIT_FAILURE);
 
     }
 
@@ -41,14 +40,14 @@ void handle_pipe(char **left_cmd, char **right_cmd){
         exit(EXIT_FAILURE);
 
     } else if (p==0){
-        // dup2(fd[0], 0);
+        dup2(fd[0], 0);
 
         close(fd[0]);
         close(fd[1]);
-
-        execvp(right_cmd[0], right_cmd);
-        perror(right_cmd[0]);
-        exit(EXIT_FAILURE);
+        exec_standard(right_cmd);
+        // execvp(right_cmd[0], right_cmd);
+        // perror(right_cmd[0]);
+        // exit(EXIT_FAILURE);
     }
 
     close(fd[0]);

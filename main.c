@@ -87,7 +87,7 @@ void test_main(){
         close(fd[1]);
         close(fd[0]);
 
-        execlp("grep", "grep", "src", NULL);
+        execlp("sort", "sort", NULL);
     }
 
     // parent

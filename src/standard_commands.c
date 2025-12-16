@@ -38,6 +38,21 @@ void cd_handler(char **tokens){
     }
 }
 
+void exec_standard(char **tokens){
+    if (strcmp(tokens[0], "exit")==0){
+        exit(0);
+    }
+    if (strcmp(tokens[0], "cd")==0){
+        cd_handler(tokens);
+        return;
+    }
+
+    execvp(tokens[0], tokens);
+    // If execvp returns, there was an error
+    perror(tokens[0]);
+    exit(EXIT_FAILURE);
+}
+
 void standard_command_run(char **tokens){
     if (strcmp(tokens[0], "exit")==0){
         exit(0);
