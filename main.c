@@ -68,41 +68,13 @@ int real_main(){
 
 // ------------------------------
 // Test main
-void test_main(){
-    int fd[2];
-    pipe(fd);  // fd[0] = read end, fd[1] = write end
 
-    if (fork() == 0) {
-        // child 1: producer
-        dup2(fd[1], 1);   // stdout -> pipe write end
-        close(fd[0]);
-        close(fd[1]);
-
-        execlp("ls", "ls", NULL);
-    }
-
-    if (fork() == 0) {
-        // child 2: consumer
-        dup2(fd[0], 0);   // stdin -> pipe read end
-        close(fd[1]);
-        close(fd[0]);
-
-        execlp("sort", "sort", NULL);
-    }
-
-    // parent
-    close(fd[0]);
-    close(fd[1]);
-
-    wait(NULL);
-    wait(NULL);
-
-    return ;
+int test_main() {
+    return 0;
 }
 // ------------------------------
 
 
 int main(int argc, char *argv[], char *envp[]){
-    real_main();
-    return 0;
+    return real_main();
 }

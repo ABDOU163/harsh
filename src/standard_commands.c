@@ -8,9 +8,7 @@
 #include <sys/wait.h>
 #include <signal.h>
 
-void cd_handler(char **tokens){
-    char *path;
-    
+void cd_handler(char **tokens){    
     if (tokens[1] == NULL){
         fprintf(stderr, "cd: expected argument\n");
         return;
@@ -19,21 +17,12 @@ void cd_handler(char **tokens){
         return;
     }
     
-    if (strcmp(tokens[1], "~") == 0){
-        path = getenv("HOME");
-        if (path == NULL) {
-            fprintf(stderr, "cd: HOME environment variable not set\n");
-            return;
-        }
-    } else {
-        path = tokens[1];
-    }
     
     // Try to change directory
-    if (chdir(path) != 0) {
+    if (chdir(tokens[1]) != 0) {
         char error_msg[512];
         memset(error_msg, 0, sizeof(error_msg));
-        snprintf(error_msg, sizeof(error_msg), "cd: %s", path);
+        snprintf(error_msg, sizeof(error_msg), "cd: %s", tokens[1]);
         perror(error_msg);
     }
 }

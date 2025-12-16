@@ -1,6 +1,6 @@
 CC = gcc
-CFLAGS = -Wall -g -I./include
-
+CFLAGS = -g -I./include
+# -Wall all warnings
 # 1. Edit this line to change the output name
 TARGET = shell_executable.bin
 
