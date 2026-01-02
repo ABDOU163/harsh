@@ -82,5 +82,5 @@ int test_main() {
 
 
 int main(int argc, char *argv[], char *envp[]){
-    return test_main();
+    return real_main();
 }
