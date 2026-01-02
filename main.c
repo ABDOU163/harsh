@@ -70,11 +70,17 @@ int real_main(){
 // Test main
 
 int test_main() {
+    int cpt=5;
+    int *x;
+    x= &cpt;
+    (*x)++;
+    printf("%d\n", *x);
+
     return 0;
 }
 // ------------------------------
 
 
 int main(int argc, char *argv[], char *envp[]){
-    return real_main();
+    return test_main();
 }

@@ -192,34 +192,37 @@ void remove_trailing_spaces(char *str) {
 // - Only allocates when tilde expansion is needed
 
 // Placeholder character for spaces inside quotes (must not appear in normal input)
-#define SPACE_PLACEHOLDER '\x01'
+#define SPACE_PLACEHOLDER 'a'
+// it is sufficient that the SPACE_PLACEHOLDER is not equal to any of the delimiters of strtok
 
 // Pre-process: replace spaces inside quotes with placeholder
-void preprocess_quotes(char *str) {
+void preprocess_quotes(char *str, char **idx, int *size) {
     bool in_single_quote = false;
     bool in_double_quote = false;
-    
+    int i=0;
     for (char *p = str; *p != '\0'; p++) {
         if (*p == '\'' && !in_double_quote) {
             in_single_quote = !in_single_quote;
         } else if (*p == '"' && !in_single_quote) {
             in_double_quote = !in_double_quote;
-        } else if ((in_single_quote || in_double_quote) && 
-                   (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r')) {
+        } else if ((in_single_quote || in_double_quote) && (*p == ' ')) {
             *p = SPACE_PLACEHOLDER;
+            idx[i++] = p;
         }
     }
+    idx[i] = (char*)NULL;
+    *size = i;
 }
 
 // Post-process: restore placeholders to spaces and strip surrounding quotes
-char* postprocess_token(char *token) {
+char* postprocess_token(char *token, char **idx, int *count, int size) {
     // Restore placeholder characters back to spaces
     for (char *p = token; *p != '\0'; p++) {
-        if (*p == SPACE_PLACEHOLDER) {
+        if ((*count < size) && (*p == SPACE_PLACEHOLDER) && (idx[*count]==p)) {
             *p = ' ';
+            *count +=1;
         }
     }
-    
     size_t len = strlen(token);
     
     // Strip surrounding quotes if present
@@ -237,6 +240,8 @@ char** tokenize(char *command, bool *is_special) {
     char **tokens = malloc((MAX_TOKENS + 1) * sizeof(char*));
     *is_special = false;
     int position = 0;
+    char *idx[MAX_TOKENS];
+    int count, size;
     
     if (!tokens) {
         fprintf(stderr, "Allocation error\n");
@@ -244,11 +249,10 @@ char** tokenize(char *command, bool *is_special) {
     }
 
     // Pre-process: protect spaces inside quotes
-    preprocess_quotes(command);
-    
+    preprocess_quotes(command, idx, &size);
+    count=0;
     // Use strtok to tokenize
-    char *token = strtok(command, " \t\r\n");
-    
+    char *token = strtok(command, " ");
     while (token != NULL) {
         if (position >= MAX_TOKENS) {
             fprintf(stderr, "Too many tokens\n");
@@ -256,7 +260,7 @@ char** tokenize(char *command, bool *is_special) {
         }
         
         // Post-process: restore spaces and strip quotes
-        char *processed_token = postprocess_token(token);
+        char *processed_token = postprocess_token(token, idx, &count, size);
         
         // Check if it's a special command
         if (!(*is_special)) {
@@ -272,7 +276,7 @@ char** tokenize(char *command, bool *is_special) {
         tokens[position] = tilde_expander(processed_token);
         position++;
         
-        token = strtok(NULL, " \t\r\n");
+        token = strtok(NULL, " ");
     }
     
     tokens[position] = NULL;
