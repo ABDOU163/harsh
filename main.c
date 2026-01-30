@@ -7,6 +7,7 @@
 #include <sys/types.h>
 #include <fcntl.h>
 #include <sys/wait.h>
+#include <glob.h>
 
 void execute(char *command){
     bool is_special = false;
@@ -69,12 +70,19 @@ int real_main(){
 // ------------------------------
 // Test main
 
+
 int test_main() {
-    int cpt=5;
-    int *x;
-    x= &cpt;
-    (*x)++;
-    printf("%d\n", *x);
+    char token[33] = "test~*";
+    glob_t glob_result;
+    int ret = glob(token, GLOB_TILDE | GLOB_MARK, NULL, &glob_result);
+    printf("return is %d\n", ret==GLOB_NOMATCH);
+    if (ret == 0) {
+        for (size_t i = 0; i < glob_result.gl_pathc; i++) {
+            printf("%s\n", glob_result.gl_pathv[i]);
+        }
+        globfree(&glob_result);
+    }
+    
 
     return 0;
 }
