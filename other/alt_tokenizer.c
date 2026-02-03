@@ -240,3 +240,36 @@ char** tokenize(char *command, bool *is_special) {
     tokens[position] = NULL;
     return tokens;
 }
+
+
+
+// iterative method for match function for wildcard expansion (* and ?)
+bool matches_pattern_iterative(char *pattern, char *candidate) {
+    char *p = pattern;
+    char *s = candidate;
+    char *last_star = NULL;
+    char *s_star_match_pos = NULL;
+
+    while (*s != '\0') {
+        if (*p == *s || *p == '?') {
+            p++;
+            s++;
+        } else if (*p == '*') {
+            last_star = p;
+            s_star_match_pos = s;
+            p++;
+        } else if (last_star != NULL) {
+            p = last_star + 1;
+            s_star_match_pos++;
+            s = s_star_match_pos;
+        } else {
+            return false;
+        }
+    }
+
+    while (*p == '*') {
+        p++;
+    }
+
+    return *p == '\0';
+}
