@@ -119,7 +119,7 @@ char **glob(char *path){
 
     char *next_slash = strchr(special_occ, '/');
 
-    unsigned char d_type = (next_slash == NULL) ? DT_REG : DT_DIR;
+    unsigned char d_type = (next_slash == NULL) ? DT_REG | DT_DIR : DT_DIR;
     char *pattern=slash_occ ? slash_occ+1 : start;
     end = next_slash;
     if (!end){
@@ -135,7 +135,7 @@ char **glob(char *path){
     free(dir_paths);
     dir_paths = new;
     *end = '/';
-    while (next_slash && *dir_paths){
+    while (next_slash && dir_paths && *dir_paths != NULL){
         start = next_slash ;
         char *special_occ = strpbrk(start, "*?");
         if (!special_occ){
@@ -153,13 +153,12 @@ char **glob(char *path){
         start = slash_occ;
 
         next_slash = strchr(special_occ, '/');  // Update outer next_slash, don't shadow it
-        unsigned char d_type = (next_slash == NULL) ? DT_REG : DT_DIR;
+        unsigned char d_type = (next_slash == NULL) ? DT_REG | DT_DIR : DT_DIR;
         char *pattern=slash_occ ? slash_occ+1 : start;
         end = next_slash;
         if (end){
             *end='\0';
         }
-        // printf("%s\n", pattern);
         char **new = get_matches(dir_paths, pattern, d_type);
         // loop to free old dir_paths
         for (char **p = dir_paths; *p != NULL; p++){

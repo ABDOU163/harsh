@@ -3,8 +3,6 @@
 #include <string.h>
 #include <stdbool.h>
 #include "includes.h"
-#include <unistd.h>
-#include <sys/types.h>
 
 
 void handle_pipe(char **left_cmd, char **right_cmd){
@@ -59,6 +57,70 @@ void handle_pipe(char **left_cmd, char **right_cmd){
 
 }
 
+void handle_output_redirect(char **left_cmd, char **right_cmd, char *redirect){
+    if (fork() == 0){
+        int fd1, fd2;
+        int flags = O_WRONLY | O_CREAT;
+        if (strcmp(redirect, ">") == 0){
+            flags |= O_TRUNC;
+            fd2 = STDOUT_FILENO;
+        } else if (strcmp(redirect, ">>") == 0){
+            flags |= O_APPEND;
+            fd2 = STDOUT_FILENO;
+        } else if (strcmp(redirect, "2>") == 0){
+            flags |= O_TRUNC;
+            fd2 = STDERR_FILENO;
+        } else if (strcmp(redirect, "2>>") == 0){
+            flags |= O_APPEND;
+            fd2 = STDERR_FILENO;
+        } else {
+            perror("Invalid output redirect operator");
+            return;
+        }
+        fd1 = open(right_cmd[0], flags, 0644);
+        if (fd1 < 0){
+            perror("File open error");
+            return;
+        }
+        dup2(fd1, fd2);
+        close(fd1);
+        // append the rest from right_cmd to left_cmd (repair the array)
+        int i, j;
+        for (i=0; left_cmd[i] != NULL; i++);
+        for (j=1; right_cmd[j] != NULL; j++){
+            left_cmd[i+j-1] = right_cmd[j];
+        }
+        left_cmd[i+j-1] = (char*)NULL;
+        right_cmd[1] = (char*)NULL;
+        exec_standard(left_cmd);
+    }
+    wait(NULL);
+    return;
+}
+
+void handle_input_redirect(char **left_cmd, char **right_cmd){
+    if (fork() == 0){
+        int fd;
+        fd = open(right_cmd[0], O_RDONLY);
+        if (fd < 0){
+            perror("File open error");
+            return;
+        }
+        dup2(fd, 0);
+        close(fd);
+        int i, j;
+        for (i=0; left_cmd[i] != NULL; i++);
+        for (j=1; right_cmd[j] != NULL; j++){
+            left_cmd[i+j-1] = right_cmd[j];
+        }
+        left_cmd[i+j-1] = (char*)NULL;
+        right_cmd[1] = (char*)NULL;
+        exec_standard(left_cmd);
+    }
+    wait(NULL);
+    return;
+}
+
 // This is for a simple special command, like a single pipe or a single redirect
 void special_command_run(char **tokens, int which_special){
     
@@ -77,12 +139,13 @@ void special_command_run(char **tokens, int which_special){
     }
     right_cmd[i-which_special-1] = (char*)NULL;
 
-    
     // special command function choosing
     if (strcmp(tokens[which_special], "|") == 0){
         handle_pipe(left_cmd, right_cmd);
-    } else{
-        // to be continued
+    } else if (strcmp(tokens[which_special], ">")==0 || strcmp(tokens[which_special], ">>")==0 || strcmp(tokens[which_special], "2>")==0 || strcmp(tokens[which_special], "2>>")==0){
+        handle_output_redirect(left_cmd, right_cmd, tokens[which_special]);
+    } else if (strcmp(tokens[which_special], "<")==0){
+        handle_input_redirect(left_cmd, right_cmd);
     }
 
     free(right_cmd);
@@ -96,19 +159,25 @@ void special_command_run(char **tokens, int which_special){
 void special_commands_run(char **tokens){
     int *which_special = malloc(MAX_TOKENS * sizeof(int));
     int count=0, i,j;
-    for (i=0; special_commands[i] != NULL; i++){
-        for (j=i ; tokens[j] != NULL ; j++){
-            if (strcmp(special_commands[i], tokens[j]) == 0){
-                which_special[count] = j;
-                count+=1;
+    for (i=0; tokens[i] != NULL; i++){
+        for (j=0; special_commands[j] != NULL; j++){
+            if (strcmp(tokens[i], special_commands[j]) == 0){
+                which_special[count] = i;
+                count++;
+                break;
             }
         }
     }
+    // for (i=0; i < count; i++){
+    //     printf("Special command %d at index %d\n", i, which_special[i]);
+    // }
     if (count == 1){
         special_command_run(tokens, which_special[0]);
     } else {
         // to be continued
     }
+
+    free(which_special);
     return;
     
 }
