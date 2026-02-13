@@ -27,6 +27,8 @@ void cd_handler(char **tokens){
     }
 }
 
+
+// used in forked children (caller forks and call this function)
 void exec_standard(char **tokens){
     if (strcmp(tokens[0], "exit")==0){
         exit(0);
@@ -42,6 +44,8 @@ void exec_standard(char **tokens){
     exit(EXIT_FAILURE);
 }
 
+
+// used when no need to fork in the caller (caller does not fork)
 void standard_command_run(char **tokens){
     if (strcmp(tokens[0], "exit")==0){
         exit(0);

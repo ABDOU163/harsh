@@ -88,7 +88,11 @@ int test_main() {
 }
 // ------------------------------
 
-
+// todo:
+// - handle multiple special commands in one go
+// add tab completion using wildcard expansion (glob) and readline library
+// study and implement signal handling for background processes (SIGCHLD) to prevent zombie processes
+// study and implement processes and threads for handling multiple commands and background processes
 int main(int argc, char *argv[], char *envp[]){
     return real_main();
 }
