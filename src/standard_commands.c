@@ -8,13 +8,13 @@
 #include <sys/wait.h>
 #include <signal.h>
 
-void cd_handler(char **tokens){    
+int cd_handler(char **tokens){    
     if (tokens[1] == NULL){
         fprintf(stderr, "cd: expected argument\n");
-        return;
+        return 1;
     } else if (tokens[2] != NULL){
         fprintf(stderr, "cd: too many arguments\n");
-        return;
+        return 1;
     }
     
     
@@ -24,7 +24,9 @@ void cd_handler(char **tokens){
         memset(error_msg, 0, sizeof(error_msg));
         snprintf(error_msg, sizeof(error_msg), "cd: %s", tokens[1]);
         perror(error_msg);
+        return 1;
     }
+    return 0;
 }
 
 
@@ -46,13 +48,12 @@ void exec_standard(char **tokens){
 
 
 // used when no need to fork in the caller (caller does not fork)
-void standard_command_run(char **tokens){
+int standard_command_run(char **tokens){
     if (strcmp(tokens[0], "exit")==0){
         exit(0);
     }
     if (strcmp(tokens[0], "cd")==0){
-        cd_handler(tokens);
-        return;
+        return cd_handler(tokens);
     }
     
     pid_t pid = fork();
@@ -69,7 +70,7 @@ void standard_command_run(char **tokens){
     } 
     
     // Parent process
-    wait(NULL);
-
-    return;
+    int status;
+    waitpid(pid, &status, 0);
+    return status;
 }

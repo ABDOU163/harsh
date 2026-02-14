@@ -66,6 +66,21 @@ int real_main(){
     return 0;
 }
 
+// -----------------------------------------
+// Signal handler function to reap zombie processes
+// not used in current version
+void sigchld_handler(int signum)
+{
+    pid_t pid;
+    int status;
+
+    // Reap all zombie processes
+    while ((pid = waitpid(-1, &status, WNOHANG)) > 0)
+    {
+        printf("Parent process reaped child process with PID %d.\n", pid);
+    }
+}
+
 
 // ------------------------------
 // Test main
@@ -94,5 +109,18 @@ int test_main() {
 // study and implement signal handling for background processes (SIGCHLD) to prevent zombie processes
 // study and implement processes and threads for handling multiple commands and background processes
 int main(int argc, char *argv[], char *envp[]){
+    pid_t child_pid;
+    struct sigaction sa;
+
+    // Register the signal handler for SIGCHLD
+    sa.sa_handler = SIG_IGN ;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = SA_RESTART || SA_NOCLDWAIT;
+
+    if (sigaction(SIGCHLD, &sa, NULL) == -1)
+    {
+        perror("sigaction");
+        exit(EXIT_FAILURE);
+    }
     return real_main();
 }

@@ -141,13 +141,7 @@ void handle_input_redirect(char **left_cmd, char **right_cmd)
     return;
 }
 
-void handle_background(char **left_cmd, char **right_cmd)
-
-// todo:
-// if we do the sigaction one it does handle it well but it is same as wait
-// as the sighandler is same as wait(NULL) so it is like we do not do it in parallel
-// so why not create a separate thread to handle the background process and let the main thread continue to run without waiting for it at all, and the signal handler will just reap the background processes when they finish without affecting the main thread's execution at all
-{
+void handle_background(char **left_cmd, char **right_cmd){
     if (fork() == 0)
     {
         exec_standard(left_cmd);
@@ -159,23 +153,34 @@ void handle_background(char **left_cmd, char **right_cmd)
     return;
 }
 
-void handle_semicolon(char **left_cmd, char **right_cmd)
-{
-    if (fork() == 0)
-    {
-        exec_standard(left_cmd);
+void handle_semicolon(char **left_cmd, char **right_cmd){
+    if (*left_cmd != NULL){
+        standard_command_run(left_cmd);
     }
-    wait(NULL);
-    if (*right_cmd != NULL)
-    {
-        exec_standard(right_cmd);
+    if (*right_cmd != NULL){
+        standard_command_run(right_cmd);
+    }
+    return;
+}
+
+void handle_or(char **left_cmd, char **right_cmd){
+    int status = standard_command_run(left_cmd);
+    if (status != 0){
+        standard_command_run(right_cmd);
+    }
+    return;
+}
+
+void handle_and(char **left_cmd, char **right_cmd){
+    int status = standard_command_run(left_cmd);
+    if (status == 0){
+        standard_command_run(right_cmd);
     }
     return;
 }
 
 // This is for a simple special command, like a single pipe or a single redirect
-void special_command_run(char **tokens, int which_special)
-{
+void special_command_run(char **tokens, int which_special){
 
     int len = MAX_TOKENS / 2 + 1;
     int i;
@@ -193,33 +198,34 @@ void special_command_run(char **tokens, int which_special)
         right_cmd[i - which_special - 1] = tokens[i];
     }
     right_cmd[i - which_special - 1] = (char *)NULL;
+    // make all of them in if else do strncmp(tokens[which_special], operator, strlen(tokens[which_special]))
 
     // special command function choosing
-    if (strncmp(tokens[which_special], "|", 1) == 0)
-    {
-        handle_pipe(left_cmd, right_cmd);
-    }
-    else if (strncmp(tokens[which_special], ">", 1) == 0 || strncmp(tokens[which_special], ">>", 2) == 0 || strncmp(tokens[which_special], "2>", 2) == 0 || strncmp(tokens[which_special], "2>>", 3) == 0)
-    {
-        handle_output_redirect(left_cmd, right_cmd, tokens[which_special]);
-    }
-    else if (strncmp(tokens[which_special], "<", 1) == 0)
-    {
-        handle_input_redirect(left_cmd, right_cmd);
-    }
-    else if (strncmp(tokens[which_special], "&", 1) == 0)
-    {
-        handle_background(left_cmd, right_cmd);
-    }
-    else if (strncmp(tokens[which_special], "&&", 2) == 0)
-    {
-        handle_and(left_cmd, right_cmd);
-    }
-    else if (strncmp(tokens[which_special], "||", 2) == 0)
+    if (strncmp(tokens[which_special], "||", strlen(tokens[which_special])) == 0)
     {
         handle_or(left_cmd, right_cmd);
     }
-    else if (strncmp(tokens[which_special], ";", 1) == 0)
+    else if (strncmp(tokens[which_special], ">", strlen(tokens[which_special])) == 0 || strncmp(tokens[which_special], "2>", strlen(tokens[which_special])) == 0 || strncmp(tokens[which_special], ">>", strlen(tokens[which_special])) == 0 || strncmp(tokens[which_special], "2>>", strlen(tokens[which_special])) == 0)
+    {
+        handle_output_redirect(left_cmd, right_cmd, tokens[which_special]);
+    }
+    else if (strncmp(tokens[which_special], "<", strlen(tokens[which_special])) == 0)
+    {
+        handle_input_redirect(left_cmd, right_cmd);
+    }
+    else if (strncmp(tokens[which_special], "&&", strlen(tokens[which_special])) == 0)
+    {
+        handle_and(left_cmd, right_cmd);
+    }
+    else if (strncmp(tokens[which_special], "&", strlen(tokens[which_special])) == 0)
+    {
+        handle_background(left_cmd, right_cmd);
+    }
+    else if (strncmp(tokens[which_special], "|", strlen(tokens[which_special])) == 0)
+    {
+        handle_pipe(left_cmd, right_cmd);
+    }
+    else if (strncmp(tokens[which_special], ";", strlen(tokens[which_special])) == 0)
     {
         handle_semicolon(left_cmd, right_cmd);
     }
@@ -235,101 +241,25 @@ void special_command_run(char **tokens, int which_special)
 }
 
 // this is for handling multiple special commands in one go
-void special_commands_run(char **tokens)
-{
+void special_commands_run(char **tokens){
     int *which_special = malloc(MAX_TOKENS * sizeof(int));
     int count = 0, i, j;
-    for (i = 0; tokens[i] != NULL; i++)
-    {
-        for (j = 0; special_commands[j] != NULL; j++)
-        {
-            if (strcmp(tokens[i], special_commands[j]) == 0)
-            {
+    for (i = 0; tokens[i] != NULL; i++){
+        for (j = 0; special_commands[j] != NULL; j++){
+            if (strcmp(tokens[i], special_commands[j]) == 0){
                 which_special[count] = i;
                 count++;
                 break;
             }
         }
     }
-    // for (i=0; i < count; i++){
-    //     printf("Special command %d at index %d\n", i, which_special[i]);
-    // }
-    if (count == 1)
-    {
+    if (count == 1){
         special_command_run(tokens, which_special[0]);
     }
-    else
-    {
+    else{
         // to be continued
     }
 
     free(which_special);
     return;
-}
-// ---------------------------------------------------------------------------
-
-#include <stdio.h>
-#include <stdlib.h>
-#include <unistd.h>
-#include <signal.h>
-#include <sys/wait.h>
-
-// Signal handler function to reap zombie processes
-void sigchld_handler(int signum)
-{
-    pid_t pid;
-    int status;
-
-    // Reap all zombie processes
-    while ((pid = waitpid(-1, &status, WNOHANG)) > 0)
-    {
-        printf("Parent process reaped child process with PID %d.\n", pid);
-    }
-}
-
-int main()
-{
-    pid_t child_pid;
-    struct sigaction sa;
-
-    // Register the signal handler for SIGCHLD
-    sa.sa_handler = sigchld_handler;
-    sigemptyset(&sa.sa_mask);
-    sa.sa_flags = SA_RESTART;
-
-    if (sigaction(SIGCHLD, &sa, NULL) == -1)
-    {
-        perror("sigaction");
-        exit(EXIT_FAILURE);
-    }
-
-    // Create a child process
-    child_pid = fork();
-
-    if (child_pid < 0)
-    {
-        // Fork failed
-        perror("fork");
-        exit(EXIT_FAILURE);
-    }
-    else if (child_pid == 0)
-    {
-        // Child process
-        printf("Child process is running.\n");
-        sleep(2);           // Simulate some work
-        exit(EXIT_SUCCESS); // Exit the child process
-    }
-    else
-    {
-        // Parent process
-        printf("Parent process is running and will continue to run.\n");
-        // Parent process continues running and will periodically reap zombie processes 
-        while (1)
-        {
-            sleep(5); // Sleep for a while to allow child processes to terminate
-            printf("Parent process is still running.\n");
-        }
-    }
-
-    return 0;
 }
