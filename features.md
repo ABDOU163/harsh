@@ -44,7 +44,7 @@ Custom Shell Feature Roadmap
     - exit code
 - Allow easy replay
 
-8. Optional Enhancements
+8. Other Enhancements
 - List all checkpoints
 - Combine checkpoints with time-travel for efficient debugging
-- History navigation (up/down arrows if you want)
+- History navigation (up/down arrows if you want) and tab completion

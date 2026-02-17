@@ -4,8 +4,7 @@
 #include <stdbool.h>
 #include "includes.h"
 
-void handle_pipe(char **left_cmd, char **right_cmd)
-{
+void handle_pipe(char **left_cmd, char **right_cmd){
     int fd[2]; /*fd[0] for read and fd[1] for write*/
     pid_t p;
     if (pipe(fd) == -1)
@@ -58,12 +57,11 @@ void handle_pipe(char **left_cmd, char **right_cmd)
     return;
 }
 
-void handle_output_redirect(char **left_cmd, char **right_cmd, char *redirect)
-{
-    if (fork() == 0)
-    {
+void handle_output_redirect(char **tokens, int which_special){
+    if (fork() == 0){
         int fd1, fd2;
         int flags = O_WRONLY | O_CREAT;
+        char *redirect = tokens[which_special];
         if (strcmp(redirect, ">") == 0)
         {
             flags |= O_TRUNC;
@@ -87,55 +85,59 @@ void handle_output_redirect(char **left_cmd, char **right_cmd, char *redirect)
         else
         {
             perror("Invalid output redirect operator");
-            return;
+            exit(EXIT_FAILURE);
         }
-        fd1 = open(right_cmd[0], flags, 0644);
+        fd1 = open(tokens[which_special + 1], flags, 0644);
         if (fd1 < 0)
         {
             perror("File open error");
-            return;
+            exit(EXIT_FAILURE);
         }
         dup2(fd1, fd2);
         close(fd1);
-        // append the rest from right_cmd to left_cmd (repair the array)
+        // get the command to execute
+        // malloc an array of all tokens excluding the redirect operator and the file name
         int i, j;
-        for (i = 0; left_cmd[i] != NULL; i++)
-            ;
-        for (j = 1; right_cmd[j] != NULL; j++)
-        {
-            left_cmd[i + j - 1] = right_cmd[j];
+        j=0;
+        char **cmd_tokens = malloc(sizeof(char *) * (MAX_TOKENS + 1));
+        for (i = 0; tokens[i] != NULL; i++){
+            if (i == which_special || i == which_special + 1){
+                continue;
+            }
+            cmd_tokens[j++] = tokens[i];
         }
-        left_cmd[i + j - 1] = (char *)NULL;
-        right_cmd[1] = (char *)NULL;
-        exec_standard(left_cmd);
+        cmd_tokens[j] = (char *)NULL;
+        exec_standard(cmd_tokens);
     }
     wait(NULL);
     return;
 }
 
-void handle_input_redirect(char **left_cmd, char **right_cmd)
-{
+void handle_input_redirect(char **tokns, int which_special){
     if (fork() == 0)
     {
         int fd;
-        fd = open(right_cmd[0], O_RDONLY);
+        fd = open(tokns[which_special + 1], O_RDONLY);
         if (fd < 0)
         {
             perror("File open error");
-            return;
+            exit(EXIT_FAILURE);
         }
         dup2(fd, 0);
         close(fd);
+        // get the command to execute
+        // malloc an array of all tokens excluding the redirect operator and the file name
         int i, j;
-        for (i = 0; left_cmd[i] != NULL; i++)
-            ;
-        for (j = 1; right_cmd[j] != NULL; j++)
-        {
-            left_cmd[i + j - 1] = right_cmd[j];
+        j=0;
+        char **cmd_tokens = malloc(sizeof(char *) * (MAX_TOKENS + 1));
+        for (i = 0; tokns[i] != NULL; i++){
+            if (i == which_special || i == which_special + 1){
+                continue;
+            }
+            cmd_tokens[j++] = tokns[i];
         }
-        left_cmd[i + j - 1] = (char *)NULL;
-        right_cmd[1] = (char *)NULL;
-        exec_standard(left_cmd);
+        cmd_tokens[j] = (char *)NULL;
+        exec_standard(cmd_tokens);
     }
     wait(NULL);
     return;
@@ -198,7 +200,6 @@ void special_command_run(char **tokens, int which_special){
         right_cmd[i - which_special - 1] = tokens[i];
     }
     right_cmd[i - which_special - 1] = (char *)NULL;
-    // make all of them in if else do strncmp(tokens[which_special], operator, strlen(tokens[which_special]))
 
     // special command function choosing
     if (strncmp(tokens[which_special], "||", strlen(tokens[which_special])) == 0)
@@ -207,11 +208,11 @@ void special_command_run(char **tokens, int which_special){
     }
     else if (strncmp(tokens[which_special], ">", strlen(tokens[which_special])) == 0 || strncmp(tokens[which_special], "2>", strlen(tokens[which_special])) == 0 || strncmp(tokens[which_special], ">>", strlen(tokens[which_special])) == 0 || strncmp(tokens[which_special], "2>>", strlen(tokens[which_special])) == 0)
     {
-        handle_output_redirect(left_cmd, right_cmd, tokens[which_special]);
+        handle_output_redirect(tokens, which_special);
     }
     else if (strncmp(tokens[which_special], "<", strlen(tokens[which_special])) == 0)
     {
-        handle_input_redirect(left_cmd, right_cmd);
+        handle_input_redirect(tokens, which_special);
     }
     else if (strncmp(tokens[which_special], "&&", strlen(tokens[which_special])) == 0)
     {
@@ -257,7 +258,8 @@ void special_commands_run(char **tokens){
         special_command_run(tokens, which_special[0]);
     }
     else{
-        // to be continued
+        // to be continued after studying operator precedance
+        // 
     }
 
     free(which_special);
