@@ -3,5 +3,6 @@
 
 extern char *special_commands[11];
 extern const int MAX_TOKENS;
+extern void free_tokens(char **tokens);
 
 #endif

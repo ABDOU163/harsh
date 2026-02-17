@@ -4,6 +4,50 @@
 #include <stdbool.h>
 #include "includes.h"
 
+int setup_redirection_fd(char **tokens, int which_special){
+    int fd;
+    int to_fd;
+    char *redirect = tokens[which_special];
+    int flags = O_WRONLY | O_CREAT;
+    if (strcmp(redirect, ">>") == 0 || strcmp(redirect, "2>>") == 0){
+        flags |= O_APPEND;
+    } else if (strcmp(redirect, ">") == 0 || strcmp(redirect, "2>") == 0){
+        flags |= O_TRUNC;
+    }
+    if (strcmp(redirect, "<") == 0){
+        to_fd = STDIN_FILENO;
+        fd = open(tokens[which_special + 1], O_RDONLY);
+    }
+    else if (strcmp(redirect, ">") == 0 || strcmp(redirect, ">>") == 0){
+        to_fd = STDOUT_FILENO;
+        fd = open(tokens[which_special + 1], flags, 0644);
+    }
+    else if (strcmp(redirect, "2>") == 0 || strcmp(redirect, "2>>") == 0){
+        to_fd = STDERR_FILENO;
+        fd = open(tokens[which_special + 1], flags, 0644);
+    }
+    else{
+        perror("Invalid redirect operator");
+        return -1;
+    }
+
+    if (fd < 0){
+        perror("File open error");
+        return -1;
+    }
+    if (dup2(fd, to_fd) < 0){
+        perror("dup2 failed");
+        close(fd);
+        return -1;
+    }
+    if (close(fd) < 0){
+        perror("File close error");
+        return -1;
+    }
+    return 0;
+}
+
+
 void handle_pipe(char **left_cmd, char **right_cmd){
     int fd[2]; /*fd[0] for read and fd[1] for write*/
     pid_t p;
@@ -113,11 +157,11 @@ void handle_output_redirect(char **tokens, int which_special){
     return;
 }
 
-void handle_input_redirect(char **tokns, int which_special){
+void handle_input_redirect(char **tokens, int which_special){
     if (fork() == 0)
     {
         int fd;
-        fd = open(tokns[which_special + 1], O_RDONLY);
+        fd = open(tokens[which_special + 1], O_RDONLY);
         if (fd < 0)
         {
             perror("File open error");
@@ -130,11 +174,11 @@ void handle_input_redirect(char **tokns, int which_special){
         int i, j;
         j=0;
         char **cmd_tokens = malloc(sizeof(char *) * (MAX_TOKENS + 1));
-        for (i = 0; tokns[i] != NULL; i++){
+        for (i = 0; tokens[i] != NULL; i++){
             if (i == which_special || i == which_special + 1){
                 continue;
             }
-            cmd_tokens[j++] = tokns[i];
+            cmd_tokens[j++] = tokens[i];
         }
         cmd_tokens[j] = (char *)NULL;
         exec_standard(cmd_tokens);
@@ -178,6 +222,41 @@ void handle_and(char **left_cmd, char **right_cmd){
     if (status == 0){
         standard_command_run(right_cmd);
     }
+    return;
+}
+
+void multiple_redirects_run(char **tokens, int *which_special, int count){
+    if (fork() == 0){
+        for (int i=0; i < count; i++){
+            if (setup_redirection_fd(tokens, which_special[i]) < 0){
+                fprintf(stderr, "Redirection setup failed: %s %s\n", tokens[which_special[i]], tokens[which_special[i] + 1]);
+                exit(EXIT_FAILURE);
+            }
+        }
+        // get the command to execute
+        // malloc an array of all tokens excluding the redirect operators and the file names
+        int i, j,k;
+        k=0;
+        j=0;    
+        char **cmd_tokens = malloc(sizeof(char *) * (MAX_TOKENS + 1));
+        for (i = 0; tokens[i] != NULL && k<count; i++){
+            if (i == which_special[k] || i == which_special[k] + 1){
+                k++;
+                continue;
+            }
+            cmd_tokens[j++] = tokens[i];
+        }
+        for (; tokens[i] != NULL; i++){
+            cmd_tokens[j++] = tokens[i];
+        }
+        cmd_tokens[j] = (char *)NULL;
+        // print all tokens
+        // for (i = 0; cmd_tokens[i] != NULL; i++){
+        //     printf("%s \n", cmd_tokens[i]);
+        // }
+        exec_standard(cmd_tokens);
+    }
+    wait(NULL);
     return;
 }
 
@@ -236,8 +315,8 @@ void special_command_run(char **tokens, int which_special){
         return;
     }
 
-    free(right_cmd);
-    free(left_cmd);
+    free_tokens(right_cmd);
+    free_tokens(left_cmd);
     return;
 }
 
@@ -248,20 +327,24 @@ void special_commands_run(char **tokens){
     for (i = 0; tokens[i] != NULL; i++){
         for (j = 0; special_commands[j] != NULL; j++){
             if (strcmp(tokens[i], special_commands[j]) == 0){
-                which_special[count] = i;
-                count++;
+                which_special[count++] = i;
                 break;
             }
         }
     }
+    which_special[count] = -1; 
     if (count == 1){
         special_command_run(tokens, which_special[0]);
     }
     else{
         // to be continued after studying operator precedance
-        // 
+        // temporaryly just handle multiple redirects
+        multiple_redirects_run(tokens, which_special, count);
     }
 
     free(which_special);
     return;
 }
+
+
+// todo: handle free precisely

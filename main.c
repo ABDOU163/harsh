@@ -18,7 +18,7 @@ void execute(char *command){
         // to change later
         special_commands_run(tokens);
     }
-    free(tokens);
+    free_tokens(tokens);
 }
 
 void display_prompt(){
