@@ -155,7 +155,7 @@ char** tokenize(char *command, bool *is_special) {
         if (quotes){
             // in this case, the token in the command is wrapped in quotes
             // as in: ... "..." ...
-            tokens[position++] = processed_token;
+            tokens[position++] = strdup(processed_token);
         } else {
             glob_t glob_result;
             int ret=glob(processed_token, GLOB_TILDE | GLOB_MARK, NULL, &glob_result);
@@ -165,7 +165,7 @@ char** tokenize(char *command, bool *is_special) {
                 }
                 globfree(&glob_result);
             } else if (ret == GLOB_NOMATCH){
-                tokens[position++] = processed_token;
+                tokens[position++] = strdup(processed_token);
             } else {
                 fprintf(stderr, "Glob error: %s\n", ret==1 ? "GLOB_NOSPACE" : "GLOB_ABORTED");
             }

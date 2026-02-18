@@ -6,7 +6,7 @@
 
 int setup_redirection_fd(char **tokens, int which_special){
     int fd;
-    int to_fd;
+    int to_fd=-1;
     char *redirect = tokens[which_special];
     int flags = O_WRONLY | O_CREAT;
     if (strcmp(redirect, ">>") == 0 || strcmp(redirect, "2>>") == 0){
@@ -240,8 +240,11 @@ void multiple_redirects_run(char **tokens, int *which_special, int count){
         j=0;    
         char **cmd_tokens = malloc(sizeof(char *) * (MAX_TOKENS + 1));
         for (i = 0; tokens[i] != NULL && k<count; i++){
-            if (i == which_special[k] || i == which_special[k] + 1){
-                k++;
+            if (i == which_special[k]){
+                continue;  
+            }
+            if (i == which_special[k] + 1){
+                k++;       
                 continue;
             }
             cmd_tokens[j++] = tokens[i];
@@ -312,11 +315,10 @@ void special_command_run(char **tokens, int which_special){
     else
     {
         perror("Invalid special command");
-        return;
     }
 
-    free_tokens(right_cmd);
-    free_tokens(left_cmd);
+    free(right_cmd);
+    free(left_cmd);
     return;
 }
 
