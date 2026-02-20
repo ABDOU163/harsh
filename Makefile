@@ -22,3 +22,20 @@ run: $(TARGET)
 # Clean rule: Only deletes the final binary (no .o files to delete)
 clean:
 	@rm -f $(TARGET)
+
+# Test rule: use valgrind for testing for heap exploits
+vg:
+	@valgrind --trace-children=yes \
+	--leak-check=full \
+	--show-leak-kinds=definite,indirect,possible \
+	--track-origins=yes \
+	./$(TARGET)
+
+
+# compile and run test file with valgrind
+SRC = test.c
+OUT = test.bin
+# --show-leak-kinds=definite,indirect,possible 
+test:
+	@$(CC) $(SRC) -o $(OUT) ; 
+	@valgrind --trace-children=yes --leak-check=full --show-leak-kinds=all --track-origins=yes ./$(OUT)

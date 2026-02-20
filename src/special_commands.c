@@ -47,7 +47,6 @@ int setup_redirection_fd(char **tokens, int which_special){
     return 0;
 }
 
-
 void handle_pipe(char **left_cmd, char **right_cmd){
     int fd[2]; /*fd[0] for read and fd[1] for write*/
     pid_t p;
@@ -224,7 +223,6 @@ void handle_and(char **left_cmd, char **right_cmd){
     }
     return;
 }
-
 void multiple_redirects_run(char **tokens, int *which_special, int count){
     if (fork() == 0){
         for (int i=0; i < count; i++){
@@ -284,31 +282,31 @@ void special_command_run(char **tokens, int which_special){
     right_cmd[i - which_special - 1] = (char *)NULL;
 
     // special command function choosing
-    if (strncmp(tokens[which_special], "||", strlen(tokens[which_special])) == 0)
+    if (strcmp(tokens[which_special], "||") == 0)
     {
         handle_or(left_cmd, right_cmd);
     }
-    else if (strncmp(tokens[which_special], ">", strlen(tokens[which_special])) == 0 || strncmp(tokens[which_special], "2>", strlen(tokens[which_special])) == 0 || strncmp(tokens[which_special], ">>", strlen(tokens[which_special])) == 0 || strncmp(tokens[which_special], "2>>", strlen(tokens[which_special])) == 0)
+    else if (strcmp(tokens[which_special], ">") == 0 || strcmp(tokens[which_special], "2>") == 0 || strcmp(tokens[which_special], ">>") == 0 || strcmp(tokens[which_special], "2>>") == 0)
     {
         handle_output_redirect(tokens, which_special);
     }
-    else if (strncmp(tokens[which_special], "<", strlen(tokens[which_special])) == 0)
+    else if (strcmp(tokens[which_special], "<") == 0)
     {
         handle_input_redirect(tokens, which_special);
     }
-    else if (strncmp(tokens[which_special], "&&", strlen(tokens[which_special])) == 0)
+    else if (strcmp(tokens[which_special], "&&") == 0)
     {
         handle_and(left_cmd, right_cmd);
     }
-    else if (strncmp(tokens[which_special], "&", strlen(tokens[which_special])) == 0)
+    else if (strcmp(tokens[which_special], "&") == 0)
     {
         handle_background(left_cmd, right_cmd);
     }
-    else if (strncmp(tokens[which_special], "|", strlen(tokens[which_special])) == 0)
+    else if (strcmp(tokens[which_special], "|") == 0)
     {
         handle_pipe(left_cmd, right_cmd);
     }
-    else if (strncmp(tokens[which_special], ";", strlen(tokens[which_special])) == 0)
+    else if (strcmp(tokens[which_special], ";") == 0)
     {
         handle_semicolon(left_cmd, right_cmd);
     }
@@ -347,6 +345,3 @@ void special_commands_run(char **tokens){
     free(which_special);
     return;
 }
-
-
-// todo: handle free precisely
