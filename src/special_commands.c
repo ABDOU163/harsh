@@ -62,47 +62,22 @@ void setup_redirect_execute(char **tokens, int *which_special, char **cmd_tokens
 void handle_pipe(char **left_cmd, char **right_cmd){
     int fd[2]; /*fd[0] for read and fd[1] for write*/
     pid_t p;
-    if (pipe(fd) == -1)
-    {
+    if (pipe(fd) == -1){
         perror("pipefd: ");
         return;
     }
 
-    p = fork();
-    if (p < 0)
-    {
-        perror("Fork failed");
-        exit(EXIT_FAILURE);
-    }
-    else if (p == 0)
-    {
-        dup2(fd[1], 1);
-
+    if (fork() == 0){
+        dup2(fd[1], STDOUT_FILENO);
         close(fd[0]);
         close(fd[1]);
-
         exec_standard(left_cmd);
-        // execvp(left_cmd[0], left_cmd);
-        // perror(left_cmd[0]);
-        // exit(EXIT_FAILURE);
     }
-
-    p = fork();
-    if (p < 0)
-    {
-        perror("Fork failed");
-        exit(EXIT_FAILURE);
-    }
-    else if (p == 0)
-    {
-        dup2(fd[0], 0);
-
+    if (fork() == 0){
+        dup2(fd[0], STDIN_FILENO);
         close(fd[0]);
         close(fd[1]);
         exec_standard(right_cmd);
-        // execvp(right_cmd[0], right_cmd);
-        // perror(right_cmd[0]);
-        // exit(EXIT_FAILURE);
     }
 
     close(fd[0]);
@@ -277,7 +252,18 @@ void get_cmd_tokens(char **tokens, int *which_special, int count, char **cmd_tok
 }
 
 
-void multiple_redirects_run(char **tokens, int *which_special, int count){
+void multiple_redirects_run(char **tokens){
+    int *which_special = malloc(MAX_TOKENS * sizeof(int));
+    int count = 0, i, j;
+    for (i = 0; tokens[i] != NULL; i++){
+        for (j = 0; redirects[j] != NULL; j++){
+            if (strcmp(tokens[i], redirects[j]) == 0){
+                which_special[count++] = i;
+                break;
+            }
+        }
+    }
+    which_special[count] = -1; 
     char **cmd_tokens = malloc(sizeof(char *) * (MAX_TOKENS + 1));
     get_cmd_tokens(tokens, which_special, count, cmd_tokens);
 
@@ -293,8 +279,58 @@ void multiple_redirects_run(char **tokens, int *which_special, int count){
         wait(NULL);
     }
     free(cmd_tokens);
+    free(which_special);
     return;
 }
+
+// now we add for multiple pipes
+
+bool pipe_left(char **curr_tokens, int *which){
+    for (int i=0; curr_tokens[i] != NULL; i++){
+        if (strcmp(curr_tokens[i], "|") == 0){
+            *which = i;
+            return true;
+        }
+    }
+    return false;
+}
+// you pass a pointer to tokens, not the one we are going to free later
+void handle_multiple_pipes(char **tokens, int *fd){
+    int which=-1;
+    if (!pipe_left(tokens, &which)){
+        multiple_redirects_run(tokens);
+        return;
+    } else{
+        char **left_cmd = malloc(sizeof(char *) * (which + 1));
+        int i;
+        for (i=0; i < which; i++){
+            left_cmd[i] = tokens[i];
+        }
+        left_cmd[which] = (char *)NULL;
+
+        if (fork() == 0){
+            dup2(fd[1], STDOUT_FILENO);
+            close(fd[0]);
+            close(fd[1]);
+            multiple_redirects_run(left_cmd);
+        }
+        close(fd[0]);
+        close(fd[1]);
+        wait(NULL);
+        free(left_cmd);
+        handle_multiple_pipes(tokens + which + 1, fd);
+    }
+}
+void setup_for_pipeline(char **tokens){
+    int fd[2]; /*fd[0] for read and fd[1] for write*/
+    pid_t p;
+    if (pipe(fd) == -1){
+        perror("pipefd: ");
+        return;
+    }
+    handle_multiple_pipes(tokens, fd);
+}
+
 
 // This is for a simple special command, like a single pipe or a single redirect
 void special_command_run(char **tokens, int which_special){
@@ -355,6 +391,8 @@ void special_command_run(char **tokens, int which_special){
     return;
 }
 
+
+
 // this is for handling multiple special commands in one go
 void special_commands_run(char **tokens){
     int *which_special = malloc(MAX_TOKENS * sizeof(int));
@@ -368,7 +406,7 @@ void special_commands_run(char **tokens){
         }
     }
     which_special[count] = -1; 
-    multiple_redirects_run(tokens, which_special, count);
+    multiple_redirects_run(tokens);
     // if (count == 1){
     //     special_command_run(tokens, which_special[0]);
     // }
