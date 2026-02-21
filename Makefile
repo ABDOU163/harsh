@@ -36,6 +36,10 @@ vg:
 SRC = test.c
 OUT = test.bin
 # --show-leak-kinds=definite,indirect,possible 
-test:
+vg-test:
 	@$(CC) $(SRC) -o $(OUT) ; 
 	@valgrind --trace-children=yes --leak-check=full --show-leak-kinds=all --track-origins=yes ./$(OUT)
+
+run-test:
+	@$(CC) $(SRC) -o $(OUT) ; 
+	@./$(OUT)

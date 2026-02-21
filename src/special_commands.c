@@ -47,6 +47,18 @@ int setup_redirection_fd(char **tokens, int which_special){
     return 0;
 }
 
+void setup_redirect_execute(char **tokens, int *which_special, char **cmd_tokens, int count){
+    for (int i=0; i < count; i++){
+        if (setup_redirection_fd(tokens, which_special[i]) < 0){
+            fprintf(stderr, "Redirection setup failed: %s %s\n", tokens[which_special[i]], tokens[which_special[i] + 1]);
+            exit(EXIT_FAILURE);
+        }
+    }
+    if (*cmd_tokens != NULL){
+        exec_standard(cmd_tokens);
+    }
+}
+
 void handle_pipe(char **left_cmd, char **right_cmd){
     int fd[2]; /*fd[0] for read and fd[1] for write*/
     pid_t p;
@@ -223,41 +235,64 @@ void handle_and(char **left_cmd, char **right_cmd){
     }
     return;
 }
-void multiple_redirects_run(char **tokens, int *which_special, int count){
-    if (fork() == 0){
-        for (int i=0; i < count; i++){
-            if (setup_redirection_fd(tokens, which_special[i]) < 0){
-                fprintf(stderr, "Redirection setup failed: %s %s\n", tokens[which_special[i]], tokens[which_special[i] + 1]);
-                exit(EXIT_FAILURE);
-            }
-        }
-        // get the command to execute
-        // malloc an array of all tokens excluding the redirect operators and the file names
-        int i, j,k;
-        k=0;
-        j=0;    
-        char **cmd_tokens = malloc(sizeof(char *) * (MAX_TOKENS + 1));
-        for (i = 0; tokens[i] != NULL && k<count; i++){
-            if (i == which_special[k]){
-                continue;  
-            }
-            if (i == which_special[k] + 1){
-                k++;       
-                continue;
-            }
-            cmd_tokens[j++] = tokens[i];
-        }
-        for (; tokens[i] != NULL; i++){
-            cmd_tokens[j++] = tokens[i];
-        }
-        cmd_tokens[j] = (char *)NULL;
-        // print all tokens
-        // for (i = 0; cmd_tokens[i] != NULL; i++){
-        //     printf("%s \n", cmd_tokens[i]);
-        // }
-        exec_standard(cmd_tokens);
+
+
+void save_fds(int *saved_fds){
+    saved_fds[0] = dup(STDIN_FILENO);
+    saved_fds[1] = dup(STDOUT_FILENO);
+    saved_fds[2] = dup(STDERR_FILENO);
+    if (saved_fds[0] < 0 || saved_fds[1] < 0 || saved_fds[2] < 0){
+        perror("Failed to save file descriptors");
+        exit(EXIT_FAILURE);
     }
-    wait(NULL);
+}
+
+void restore_fds(int *saved_fds){
+    dup2(saved_fds[0], STDIN_FILENO);
+    dup2(saved_fds[1], STDOUT_FILENO);
+    dup2(saved_fds[2], STDERR_FILENO);
+    close(saved_fds[0]);
+    close(saved_fds[1]);
+    close(saved_fds[2]);
+}
+
+void get_cmd_tokens(char **tokens, int *which_special, int count, char **cmd_tokens){
+    int i, j, k;
+    k=0;
+    j=0;
+    for (i = 0; tokens[i] != NULL && k<count; i++){
+        if (i == which_special[k]){
+            continue;  
+        }
+        if (i == which_special[k] + 1){
+            k++;       
+            continue;
+        }
+        cmd_tokens[j++] = tokens[i];
+    }
+    for (; tokens[i] != NULL; i++){
+        cmd_tokens[j++] = tokens[i];
+    }
+    cmd_tokens[j] = (char *)NULL;
+}
+
+
+void multiple_redirects_run(char **tokens, int *which_special, int count){
+    char **cmd_tokens = malloc(sizeof(char *) * (MAX_TOKENS + 1));
+    get_cmd_tokens(tokens, which_special, count, cmd_tokens);
+
+    if (strcmp(*cmd_tokens, "exit") == 0 || strcmp(*cmd_tokens, "cd") ==0){
+        int fds[3];
+        save_fds(fds);
+        setup_redirect_execute(tokens, which_special, cmd_tokens, count);
+        restore_fds(fds);
+    } else{
+        if (fork() == 0){
+            setup_redirect_execute(tokens, which_special, cmd_tokens, count);
+        }
+        wait(NULL);
+    }
+    free(cmd_tokens);
     return;
 }
 
@@ -333,14 +368,15 @@ void special_commands_run(char **tokens){
         }
     }
     which_special[count] = -1; 
-    if (count == 1){
-        special_command_run(tokens, which_special[0]);
-    }
-    else{
-        // to be continued after studying operator precedance
-        // temporaryly just handle multiple redirects
-        multiple_redirects_run(tokens, which_special, count);
-    }
+    multiple_redirects_run(tokens, which_special, count);
+    // if (count == 1){
+    //     special_command_run(tokens, which_special[0]);
+    // }
+    // else{
+    //     // to be continued after studying operator precedance
+    //     // temporaryly just handle multiple redirects
+    //     multiple_redirects_run(tokens, which_special, count);
+    // }
 
     free(which_special);
     return;

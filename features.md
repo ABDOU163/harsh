@@ -22,9 +22,9 @@ Custom Shell Feature Roadmap
 - Support standard pipes: cmd1 | cmd2 | cmd3
 - Enable interactive pipeline mode:
   $ pipeline
-    add cat file
-    add grep foo
-    add sort
+    cat file
+    grep foo
+    sort
     run
 
 5. Aliases & Directory Teleportation
