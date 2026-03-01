@@ -57,7 +57,7 @@ char** get_matches(char **dir_paths, char* pattern, unsigned char d_type){
                 entry = readdir(dir);
                 continue;
             }
-            if (entry->d_type == d_type && is_valid_match(pattern, entry->d_name)){
+            if ((d_type == 'a' || entry->d_type == d_type) && is_valid_match(pattern, entry->d_name)){
                 matches[i] = strdup(*p);
                 matches[i] = realloc(matches[i], strlen(*p) + strlen(entry->d_name) + 1);
                 strcat(matches[i], entry->d_name);
@@ -119,7 +119,7 @@ char **glob(char *path){
 
     char *next_slash = strchr(special_occ, '/');
 
-    unsigned char d_type = (next_slash == NULL) ? DT_REG | DT_DIR : DT_DIR;
+    unsigned char d_type = (next_slash == NULL) ? 'a' : DT_DIR;
     char *pattern=slash_occ ? slash_occ+1 : start;
     end = next_slash;
     if (!end){
@@ -153,7 +153,7 @@ char **glob(char *path){
         start = slash_occ;
 
         next_slash = strchr(special_occ, '/');  // Update outer next_slash, don't shadow it
-        unsigned char d_type = (next_slash == NULL) ? DT_REG | DT_DIR : DT_DIR;
+        unsigned char d_type = (next_slash == NULL) ? 'a' : DT_DIR;
         char *pattern=slash_occ ? slash_occ+1 : start;
         end = next_slash;
         if (end){
