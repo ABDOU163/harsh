@@ -60,159 +60,6 @@ void setup_redirect_execute(char **tokens, int *which_special, char **cmd_tokens
     }
 }
 
-void handle_pipe(char **left_cmd, char **right_cmd){
-    int fd[2]; /*fd[0] for read and fd[1] for write*/
-    pid_t p;
-    if (pipe(fd) == -1){
-        perror("pipefd: ");
-        return;
-    }
-
-    if (fork() == 0){
-        dup2(fd[1], STDOUT_FILENO);
-        close(fd[0]);
-        close(fd[1]);
-        exec_standard(left_cmd);
-    }
-    if (fork() == 0){
-        dup2(fd[0], STDIN_FILENO);
-        close(fd[0]);
-        close(fd[1]);
-        exec_standard(right_cmd);
-    }
-
-    close(fd[0]);
-    close(fd[1]);
-    wait(NULL);
-    wait(NULL);
-    return;
-}
-
-void handle_output_redirect(char **tokens, int which_special){
-    if (fork() == 0){
-        int fd1, fd2;
-        int flags = O_WRONLY | O_CREAT;
-        char *redirect = tokens[which_special];
-        if (strcmp(redirect, ">") == 0)
-        {
-            flags |= O_TRUNC;
-            fd2 = STDOUT_FILENO;
-        }
-        else if (strcmp(redirect, ">>") == 0)
-        {
-            flags |= O_APPEND;
-            fd2 = STDOUT_FILENO;
-        }
-        else if (strcmp(redirect, "2>") == 0)
-        {
-            flags |= O_TRUNC;
-            fd2 = STDERR_FILENO;
-        }
-        else if (strcmp(redirect, "2>>") == 0)
-        {
-            flags |= O_APPEND;
-            fd2 = STDERR_FILENO;
-        }
-        else
-        {
-            perror("Invalid output redirect operator");
-            exit(EXIT_FAILURE);
-        }
-        fd1 = open(tokens[which_special + 1], flags, 0644);
-        if (fd1 < 0)
-        {
-            perror("File open error");
-            exit(EXIT_FAILURE);
-        }
-        dup2(fd1, fd2);
-        close(fd1);
-        // get the command to execute
-        // malloc an array of all tokens excluding the redirect operator and the file name
-        int i, j;
-        j=0;
-        char **cmd_tokens = malloc(sizeof(char *) * (MAX_TOKENS + 1));
-        for (i = 0; tokens[i] != NULL; i++){
-            if (i == which_special || i == which_special + 1){
-                continue;
-            }
-            cmd_tokens[j++] = tokens[i];
-        }
-        cmd_tokens[j] = (char *)NULL;
-        exec_standard(cmd_tokens);
-    }
-    wait(NULL);
-    return;
-}
-
-void handle_input_redirect(char **tokens, int which_special){
-    if (fork() == 0)
-    {
-        int fd;
-        fd = open(tokens[which_special + 1], O_RDONLY);
-        if (fd < 0)
-        {
-            perror("File open error");
-            exit(EXIT_FAILURE);
-        }
-        dup2(fd, 0);
-        close(fd);
-        // get the command to execute
-        // malloc an array of all tokens excluding the redirect operator and the file name
-        int i, j;
-        j=0;
-        char **cmd_tokens = malloc(sizeof(char *) * (MAX_TOKENS + 1));
-        for (i = 0; tokens[i] != NULL; i++){
-            if (i == which_special || i == which_special + 1){
-                continue;
-            }
-            cmd_tokens[j++] = tokens[i];
-        }
-        cmd_tokens[j] = (char *)NULL;
-        exec_standard(cmd_tokens);
-    }
-    wait(NULL);
-    return;
-}
-
-void handle_background(char **left_cmd, char **right_cmd){
-    if (fork() == 0)
-    {
-        exec_standard(left_cmd);
-    }
-    if (*right_cmd != NULL)
-    {
-        standard_command_run(right_cmd);
-    }
-    return;
-}
-
-void handle_semicolon(char **left_cmd, char **right_cmd){
-    if (*left_cmd != NULL){
-        standard_command_run(left_cmd);
-    }
-    if (*right_cmd != NULL){
-        standard_command_run(right_cmd);
-    }
-    return;
-}
-
-void handle_or(char **left_cmd, char **right_cmd){
-    int status = standard_command_run(left_cmd);
-    if (status != 0){
-        standard_command_run(right_cmd);
-    }
-    return;
-}
-
-void handle_and(char **left_cmd, char **right_cmd){
-    int status = standard_command_run(left_cmd);
-    if (status == 0){
-        standard_command_run(right_cmd);
-    }
-    return;
-}
-
-
 void save_fds(int *saved_fds){
     saved_fds[0] = dup(STDIN_FILENO);
     saved_fds[1] = dup(STDOUT_FILENO);
@@ -264,9 +111,10 @@ void get_cmd_tokens(char **tokens, int *which_special, int *count, char **cmd_to
 
 // no need to fork to use this function
 // if you want to fork you can use setup_redirect_execute
-void multiple_redirects_run(char **tokens){
+int multiple_redirects_run(char **tokens){
     int *which_special = malloc(MAX_TOKENS * sizeof(int));
     int count = 0;
+    int status = 0;
     char **cmd_tokens = malloc(sizeof(char *) * (MAX_TOKENS + 1));
     get_cmd_tokens(tokens, which_special, &count, cmd_tokens);
 
@@ -279,25 +127,16 @@ void multiple_redirects_run(char **tokens){
         if (fork() == 0){
             setup_redirect_execute(tokens, which_special, cmd_tokens, count);
         }
-        wait(NULL);
+        wait(&status);
     }
     free(cmd_tokens);
     free(which_special);
-    return;
+    return status;
 }
 
 
-bool pipe_left(char **curr_tokens, int *which){
-    for (int i=0; curr_tokens[i] != NULL; i++){
-        if (strcmp(curr_tokens[i], "|") == 0){
-            *which = i;
-            return true;
-        }
-    }
-    return false;
-}
 
-void handle_multiple_pipes(char **tokens){
+int handle_multiple_pipes(char **tokens){
     // Count pipe operators and collect their positions
     int pipe_positions[MAX_TOKENS];
     int pipe_count = 0;
@@ -309,8 +148,7 @@ void handle_multiple_pipes(char **tokens){
 
     // If no pipes, just run with multiple redirects
     if (pipe_count == 0){
-        multiple_redirects_run(tokens);
-        return;
+        return multiple_redirects_run(tokens);
     }
 
     int num_segments = pipe_count + 1;
@@ -329,7 +167,11 @@ void handle_multiple_pipes(char **tokens){
     for (int i = 0; i < pipe_count; i++){
         if (pipe(pipefds[i]) == -1){
             perror("pipe");
-            return;
+            for (int i = 0; i < pipe_count; i++){
+                close(pipefds[i][0]);
+                close(pipefds[i][1]);
+            }
+            return -1;
         }
     }
 
@@ -339,7 +181,11 @@ void handle_multiple_pipes(char **tokens){
         pids[i] = fork();
         if (pids[i] < 0){
             perror("fork");
-            return;
+            for (int j = 0; j < pipe_count; j++){
+                close(pipefds[j][0]);
+                close(pipefds[j][1]);
+            }
+            return -1;
         }
         if (pids[i] == 0){
             // If not the first segment, read stdin from previous pipe
@@ -376,97 +222,112 @@ void handle_multiple_pipes(char **tokens){
         close(pipefds[i][1]);
     }
 
-    // Wait for all children
+    // Wait for all children, capture status of the last one
+    int status = 0;
     for (int i = 0; i < num_segments; i++){
-        waitpid(pids[i], NULL, 0);
+        waitpid(pids[i], &status, 0);
+    }
+    return status;
+}
+
+
+void handle_and_or(char **tokens){
+    // Collect positions and types of && and || operators
+    int op_positions[MAX_TOKENS];
+    int op_types[MAX_TOKENS]; // 0 = &&, 1 = ||
+    int op_count = 0;
+    for (int i = 0; tokens[i] != NULL; i++){
+        if (strcmp(tokens[i], "&&") == 0){
+            op_positions[op_count] = i;
+            op_types[op_count] = 0;
+            op_count++;
+        } else if (strcmp(tokens[i], "||") == 0){
+            op_positions[op_count] = i;
+            op_types[op_count] = 1;
+            op_count++;
+        }
+    }
+
+    // If no && or ||, just run with handle_multiple_pipes
+    if (op_count == 0){
+        handle_multiple_pipes(tokens);
+        return;
+    }
+
+    int num_segments = op_count + 1;
+
+    // Nullify operator tokens in-place and collect segment start indices
+    int seg_starts[num_segments];
+    seg_starts[0] = 0;
+    for (int p = 0; p < op_count; p++){
+        tokens[op_positions[p]] = NULL;
+        seg_starts[p + 1] = op_positions[p] + 1;
+    }
+
+    // Run segments left-to-right, short-circuiting based on operator
+    int status = handle_multiple_pipes(tokens);
+    for (int i = 0; i < op_count; i++){
+        if (op_types[i] == 0){ // &&
+            if (status != 0) continue;
+        } else { // ||
+            if (status == 0) continue;
+        }
+        status = handle_multiple_pipes(tokens + seg_starts[i + 1]);
     }
 }
 
 
-// This is for a simple special command, like a single pipe or a single redirect
-void special_command_run(char **tokens, int which_special){
-
-    int len = MAX_TOKENS / 2 + 1;
-    int i;
-    char **left_cmd = malloc(sizeof(char *) * (len + 1));
-    char **right_cmd = malloc(sizeof(char *) * (len + 1));
-
-    for (i = 0; i < which_special; i++)
-    {
-        left_cmd[i] = tokens[i];
-    }
-    left_cmd[i] = (char *)NULL;
-
-    for (i = which_special + 1; tokens[i] != NULL; i++)
-    {
-        right_cmd[i - which_special - 1] = tokens[i];
-    }
-    right_cmd[i - which_special - 1] = (char *)NULL;
-
-    // special command function choosing
-    if (strcmp(tokens[which_special], "||") == 0)
-    {
-        handle_or(left_cmd, right_cmd);
-    }
-    else if (strcmp(tokens[which_special], ">") == 0 || strcmp(tokens[which_special], "2>") == 0 || strcmp(tokens[which_special], ">>") == 0 || strcmp(tokens[which_special], "2>>") == 0)
-    {
-        handle_output_redirect(tokens, which_special);
-    }
-    else if (strcmp(tokens[which_special], "<") == 0)
-    {
-        handle_input_redirect(tokens, which_special);
-    }
-    else if (strcmp(tokens[which_special], "&&") == 0)
-    {
-        handle_and(left_cmd, right_cmd);
-    }
-    else if (strcmp(tokens[which_special], "&") == 0)
-    {
-        handle_background(left_cmd, right_cmd);
-    }
-    else if (strcmp(tokens[which_special], "|") == 0)
-    {
-        handle_pipe(left_cmd, right_cmd);
-    }
-    else if (strcmp(tokens[which_special], ";") == 0)
-    {
-        handle_semicolon(left_cmd, right_cmd);
-    }
-    else
-    {
-        perror("Invalid special command");
-    }
-
-    free(right_cmd);
-    free(left_cmd);
-    return;
-}
 
 
 
 // this is for handling multiple special commands in one go
+// precedence: ; & -> && || -> | -> redirects -> exec
 void special_commands_run(char **tokens){
-    int *which_special = malloc(MAX_TOKENS * sizeof(int));
-    int count = 0, i, j;
-    for (i = 0; tokens[i] != NULL; i++){
-        for (j = 0; special_commands[j] != NULL; j++){
-            if (strcmp(tokens[i], special_commands[j]) == 0){
-                which_special[count++] = i;
-                break;
-            }
+    // Collect positions and types of ; and & operators
+    int op_positions[MAX_TOKENS];
+    int op_types[MAX_TOKENS]; // 0 = ;, 1 = &
+    int op_count = 0;
+    for (int i = 0; tokens[i] != NULL; i++){
+        if (strcmp(tokens[i], ";") == 0){
+            op_positions[op_count] = i;
+            op_types[op_count] = 0;
+            op_count++;
+        } else if (strcmp(tokens[i], "&") == 0){
+            op_positions[op_count] = i;
+            op_types[op_count] = 1;
+            op_count++;
         }
     }
-    which_special[count] = -1;
-    handle_multiple_pipes(tokens);
-    // if (count == 1){
-    //     special_command_run(tokens, which_special[0]);
-    // }
-    // else{
-    //     // to be continued after studying operator precedance
-    //     // temporaryly just handle multiple redirects
-    //     multiple_redirects_run(tokens, which_special, count);
-    // }
 
-    free(which_special);
-    return;
+    // If no ; or &, just run with handle_and_or
+    if (op_count == 0){
+        handle_and_or(tokens);
+        return;
+    }
+
+    int num_segments = op_count + 1;
+
+    // Nullify operator tokens in-place and collect segment start indices
+    int seg_starts[num_segments];
+    seg_starts[0] = 0;
+    for (int p = 0; p < op_count; p++){
+        tokens[op_positions[p]] = NULL;
+        seg_starts[p + 1] = op_positions[p] + 1;
+    }
+
+    // Run each segment according to the operator that follows it
+    for (int i = 0; i < num_segments; i++){
+        // Skip empty segments (e.g. trailing ; or &)
+        if (tokens[seg_starts[i]] == NULL) continue;
+
+        if (i < op_count && op_types[i] == 1){ // & : run in background
+            if (fork() == 0){
+                handle_and_or(tokens + seg_starts[i]);
+                exit(0);
+            }
+            // parent does not wait — background
+        } else { // ; or last segment: run in foreground
+            handle_and_or(tokens + seg_starts[i]);
+        }
+    }
 }
