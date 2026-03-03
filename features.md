@@ -18,14 +18,8 @@ Custom Shell Feature Roadmap
 - Support '<' for stdin redirection
 - Support '>>' for appending
 
-4. Pipes
-- Support standard pipes: cmd1 | cmd2 | cmd3
-- Enable interactive pipeline mode:
-  $ pipeline
-    cat file
-    grep foo
-    sort
-    run
+4. Pipes and others
+- Support standard pipes and other operators: ; && || &
 
 5. Aliases & Directory Teleportation
 - Implement alias feature for commands

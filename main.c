@@ -8,25 +8,27 @@
 #include <fcntl.h>
 #include <sys/wait.h>
 #include <glob.h>
+#include <readline/readline.h>
+#include <readline/history.h>
 
 void execute(char *command){
     bool is_special = false;
     char **tokens = tokenize(command, &is_special);
-    if (is_special == false){
-        standard_command_run(tokens);
-    } else{
-        // to change later
-        special_commands_run(tokens);
+    if (tokens[0] == NULL){
+        free_tokens(tokens);
+        return;
     }
+    special_commands_run(tokens);
     free_tokens(tokens);
 }
 
-void display_prompt(){
-    char hostname[256];
+char* build_prompt(){
+    char prompt[512];
+    char hostname[128];
     gethostname(hostname, sizeof(hostname));
     char *username= getenv("LOGNAME");
-    char cwd[256];
-    getcwd(cwd, 256);
+    char cwd[128];
+    getcwd(cwd, 128);
 
     // checking so /home/username = ~
     char *temp=cwd;
@@ -46,21 +48,31 @@ void display_prompt(){
         *temp = '~';
     }
 
-    printf("%s@%s:%s$ ", username, hostname, temp);
+    snprintf(prompt, 512, "%s@%s:%s$ ", username, hostname, temp);
+    return strdup(prompt);
 }
 
 
 int real_main(){
-    char command[256];
     setvbuf(stdout, NULL, _IONBF, 0);
+    stifle_history(HISTORY_LENGTH);
     while (true)
     {
-        display_prompt();
-        if (fgets(command, sizeof(command), stdin) == NULL) {
-            perror("Error reading command");
+        char *prompt = build_prompt();
+        char *line = readline(prompt);
+        if (line == NULL){
+            // EOF (Ctrl+D)
+            printf("\n");
+            break;
+        }
+        if (*line == '\0'){
+            free(line);
             continue;
         }
-        execute(command);
+        add_history(line);
+        execute(line);
+        free(line);
+        free(prompt);
     }
     
     return 0;

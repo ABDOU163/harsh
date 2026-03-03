@@ -54,7 +54,7 @@ void remove_trailing_spaces(char *str) {
     }
 }
 
-void glob_expander(char *token){
+void glob_expander_print_free(char *token){
     glob_t glob_result;
     int ret = glob(token, GLOB_TILDE | GLOB_MARK, NULL, &glob_result);
     if (ret == 0) {

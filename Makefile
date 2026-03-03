@@ -1,5 +1,6 @@
 CC = gcc
 CFLAGS = -g -I./include
+LDLIBS = -lreadline
 # -Wall all warnings
 # 1. Edit this line to change the output name
 TARGET = shell_executable.bin
@@ -13,7 +14,7 @@ all: $(TARGET)
 
 # Linking/Compilation Rule: Creates the executable directly from the source files
 $(TARGET): $(SRCS)
-	@$(CC) $(CFLAGS) $(SRCS) -o $(TARGET)
+	@$(CC) $(CFLAGS) $(SRCS) -o $(TARGET) $(LDLIBS)
 
 # Run rule
 run: $(TARGET)
