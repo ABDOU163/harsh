@@ -48,35 +48,40 @@ int setup_redirection_fd(char **tokens, int which_special){
 }
 
 // always run this in a child process, except for built-in commands, which we will handle separately by saving and restoring fds
-void setup_redirect_execute(char **tokens, int *which_special, char **cmd_tokens, int count){
+int setup_redirect_execute(char **tokens, int *which_special, char **cmd_tokens, int count){
     for (int i=0; i < count; i++){
         if (setup_redirection_fd(tokens, which_special[i]) < 0){
             fprintf(stderr, "Redirection setup failed: %s %s\n", tokens[which_special[i]], tokens[which_special[i] + 1]);
-            exit(EXIT_FAILURE);
+            return -1;
         }
     }
     if (*cmd_tokens != NULL){
         exec_standard(cmd_tokens);
     }
+    return 0;
 }
 
-void save_fds(int *saved_fds){
+int save_fds(int *saved_fds){
     saved_fds[0] = dup(STDIN_FILENO);
     saved_fds[1] = dup(STDOUT_FILENO);
     saved_fds[2] = dup(STDERR_FILENO);
     if (saved_fds[0] < 0 || saved_fds[1] < 0 || saved_fds[2] < 0){
         perror("Failed to save file descriptors");
-        exit(EXIT_FAILURE);
+        return -1;
     }
+    return 0;
 }
 
-void restore_fds(int *saved_fds){
-    dup2(saved_fds[0], STDIN_FILENO);
-    dup2(saved_fds[1], STDOUT_FILENO);
-    dup2(saved_fds[2], STDERR_FILENO);
-    close(saved_fds[0]);
-    close(saved_fds[1]);
-    close(saved_fds[2]);
+int restore_fds(int *saved_fds){
+    if (dup2(saved_fds[0], STDIN_FILENO) < 0 || dup2(saved_fds[1], STDOUT_FILENO) < 0 || dup2(saved_fds[2], STDERR_FILENO) < 0){
+        perror("Failed to restore file descriptors");
+        return -1;
+    }
+    if (close(saved_fds[0]) < 0 || close(saved_fds[1]) < 0 || close(saved_fds[2]) < 0){
+        perror("Failed to close file descriptors");
+        return -1;
+    }
+    return 0;
 }
 
 void get_cmd_tokens(char **tokens, int *which_special, int *count, char **cmd_tokens){
@@ -113,21 +118,55 @@ void get_cmd_tokens(char **tokens, int *which_special, int *count, char **cmd_to
 // if you want to fork you can use setup_redirect_execute
 int multiple_redirects_run(char **tokens){
     int *which_special = malloc(MAX_TOKENS * sizeof(int));
+    if (which_special == NULL){
+        return -1;
+    }
     int count = 0;
     int status = 0;
     char **cmd_tokens = malloc(sizeof(char *) * (MAX_TOKENS + 1));
+    if (cmd_tokens == NULL){
+        free(which_special);
+        return -1;
+    }
     get_cmd_tokens(tokens, which_special, &count, cmd_tokens);
 
-    if (strcmp(*cmd_tokens, "exit") == 0 || strcmp(*cmd_tokens, "cd") ==0){
-        int fds[3];
-        save_fds(fds);
-        setup_redirect_execute(tokens, which_special, cmd_tokens, count);
-        restore_fds(fds);
-    } else{
-        if (fork() == 0){
+    if (*cmd_tokens == NULL){
+        // No command, only redirects (e.g. "> file")
+        // Still set up redirects in case there are side effects (file creation)
+        pid_t pid = fork();
+        if (pid < 0){
+            perror("fork");
+            status = -1;
+        } else if (pid == 0){
             setup_redirect_execute(tokens, which_special, cmd_tokens, count);
+            _exit(0);
+        } else {
+            wait(&status);
         }
-        wait(&status);
+    } else if (strcmp(*cmd_tokens, "exit") == 0 || strcmp(*cmd_tokens, "cd") ==0){
+        int fds[3];
+        if (save_fds(fds) < 0){
+            _exit(EXIT_FAILURE);
+        }
+        int ret = setup_redirect_execute(tokens, which_special, cmd_tokens, count);
+        if (restore_fds(fds) < 0){
+            _exit(EXIT_FAILURE);
+        }
+        if (ret < 0){
+            status = -1;
+        }
+    } else{
+        pid_t pid = fork();
+        if (pid < 0){
+            perror("fork");
+            status = -1;
+        } else if (pid == 0){
+            if (setup_redirect_execute(tokens, which_special, cmd_tokens, count) < 0){
+                _exit(EXIT_FAILURE);
+            }
+        } else {
+            wait(&status);
+        }
     }
     free(cmd_tokens);
     free(which_special);
@@ -167,9 +206,9 @@ int handle_multiple_pipes(char **tokens){
     for (int i = 0; i < pipe_count; i++){
         if (pipe(pipefds[i]) == -1){
             perror("pipe");
-            for (int i = 0; i < pipe_count; i++){
-                close(pipefds[i][0]);
-                close(pipefds[i][1]);
+            for (int j = 0; j < i; j++){
+                close(pipefds[j][0]);
+                close(pipefds[j][1]);
             }
             return -1;
         }
@@ -181,20 +220,31 @@ int handle_multiple_pipes(char **tokens){
         pids[i] = fork();
         if (pids[i] < 0){
             perror("fork");
+            // Close all pipe fds so children get EOF/SIGPIPE and can terminate
             for (int j = 0; j < pipe_count; j++){
                 close(pipefds[j][0]);
                 close(pipefds[j][1]);
+            }
+            // Wait for already-forked children to prevent orphans
+            for (int j = 0; j < i; j++){
+                waitpid(pids[j], NULL, 0);
             }
             return -1;
         }
         if (pids[i] == 0){
             // If not the first segment, read stdin from previous pipe
             if (i > 0){
-                dup2(pipefds[i - 1][0], STDIN_FILENO);
+                if (dup2(pipefds[i - 1][0], STDIN_FILENO) < 0){
+                    perror("dup2 stdin");
+                    _exit(EXIT_FAILURE);
+                }
             }
             // If not the last segment, write stdout to current pipe
             if (i < pipe_count){
-                dup2(pipefds[i][1], STDOUT_FILENO);
+                if (dup2(pipefds[i][1], STDOUT_FILENO) < 0){
+                    perror("dup2 stdout");
+                    _exit(EXIT_FAILURE);
+                }
             }
 
             // Close all pipe fds in the child
@@ -207,12 +257,21 @@ int handle_multiple_pipes(char **tokens){
             int *which_special = malloc(MAX_TOKENS * sizeof(int));
             int count = 0;
             char **cmd_tokens = malloc(sizeof(char *) * (MAX_TOKENS + 1));
+            if (!which_special || !cmd_tokens){
+                perror("malloc");
+                free(which_special);
+                free(cmd_tokens);
+                _exit(EXIT_FAILURE);
+            }
             get_cmd_tokens(seg_starts[i], which_special, &count, cmd_tokens);
 
-            setup_redirect_execute(seg_starts[i], which_special, cmd_tokens, count);
+            if (setup_redirect_execute(seg_starts[i], which_special, cmd_tokens, count) <0){
+                free(cmd_tokens);
+                free(which_special);
+                _exit(EXIT_FAILURE);
+            }
             free(cmd_tokens);
             free(which_special);
-            exit(EXIT_FAILURE);
         }
     }
 
@@ -224,14 +283,16 @@ int handle_multiple_pipes(char **tokens){
 
     // Wait for all children, capture status of the last one
     int status = 0;
+    int temp = status;
     for (int i = 0; i < num_segments; i++){
         waitpid(pids[i], &status, 0);
+        temp |= status;
     }
-    return status;
+    return temp;
 }
 
 
-void handle_and_or(char **tokens){
+int handle_and_or(char **tokens){
     // Collect positions and types of && and || operators
     int op_positions[MAX_TOKENS];
     int op_types[MAX_TOKENS]; // 0 = &&, 1 = ||
@@ -250,8 +311,7 @@ void handle_and_or(char **tokens){
 
     // If no && or ||, just run with handle_multiple_pipes
     if (op_count == 0){
-        handle_multiple_pipes(tokens);
-        return;
+        return handle_multiple_pipes(tokens);
     }
 
     int num_segments = op_count + 1;
@@ -274,12 +334,11 @@ void handle_and_or(char **tokens){
         }
         status = handle_multiple_pipes(tokens + seg_starts[i + 1]);
     }
+    return 0;
 }
 
 
-// this is for handling multiple special commands in one go
-// precedence: ; & -> && || -> | -> redirects -> exec
-void special_commands_run(char **tokens){
+int special_commands_run(char **tokens){
     // Collect positions and types of ; and & operators
     int op_positions[MAX_TOKENS];
     int op_types[MAX_TOKENS]; // 0 = ;, 1 = &
@@ -298,8 +357,7 @@ void special_commands_run(char **tokens){
 
     // If no ; or &, just run with handle_and_or
     if (op_count == 0){
-        handle_and_or(tokens);
-        return;
+        return handle_and_or(tokens);
     }
 
     int num_segments = op_count + 1;
@@ -313,18 +371,25 @@ void special_commands_run(char **tokens){
     }
 
     // Run each segment according to the operator that follows it
+    int status = 0;
     for (int i = 0; i < num_segments; i++){
         // Skip empty segments (e.g. trailing ; or &)
         if (tokens[seg_starts[i]] == NULL) continue;
 
         if (i < op_count && op_types[i] == 1){ // & : run in background
-            if (fork() == 0){
+            pid_t pid = fork();
+            if (pid < 0){
+                perror("fork");
+                return -1;
+            }
+            if (pid == 0){
                 handle_and_or(tokens + seg_starts[i]);
-                exit(0);
+                _exit(0);
             }
             // parent does not wait — background
         } else { // ; or last segment: run in foreground
-            handle_and_or(tokens + seg_starts[i]);
+            status = handle_and_or(tokens + seg_starts[i]);
         }
     }
+    return status;
 }

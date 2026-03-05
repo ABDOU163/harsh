@@ -3,7 +3,7 @@ CFLAGS = -g -I./include
 LDLIBS = -lreadline
 # -Wall all warnings
 # 1. Edit this line to change the output name
-TARGET = shell_executable.bin
+TARGET = harsh
 
 # 2. Edit this line to add/remove .c files
 # All listed files are compiled and linked in one step.

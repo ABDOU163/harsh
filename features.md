@@ -2,43 +2,53 @@
 Custom Shell Feature Roadmap
 ----------------------------
 
-1. Core Command Execution
-- fork a child for each command
-- use exec() to run standard commands
-- create a helper function to execute standard commands
+1. Core Command Execution ✔️
+- fork a child for each command ✔️
+- use exec() to run standard commands ✔️
+- create a helper function to execute standard commands ✔️
   (this simplifies handling redirection, pipes, and history)
 
-2. Command Parsing
-- Manual tokenization of input
-- Support arguments, quotes, escapes
-- Handle special characters: * and ? for file matching
+2. Command Parsing ✔️
+- Manual tokenization of input ✔️
+- Support arguments, quotes, escapes ✔️
+- Handle special characters: * and ? for file matching ✔️
 
-3. Input/Output Redirection
-- Support '>' for stdout redirection
-- Support '<' for stdin redirection
-- Support '>>' for appending
+3. Input/Output Redirection ✔️
+- Support '>' for stdout redirection ✔️
+- Support '<' for stdin redirection ✔️
+- Support '>>' for appending ✔️
 
-4. Pipes and others
-- Support standard pipes and other operators: ; && || &
+4. Pipes and others ✔️
+- Support standard pipes and other operators: ; && || & ✔️
+- History navigation (up/down arrows if you want) and tab completion + !! and !n✔️
 
-5. Aliases & Directory Teleportation
+5- Unify code structure:
+- avoid void functions, return error codes instead
+- consistent error handling
+- consistent function signatures (e.g., all functions that can fail should return int)
+- use static functions for internal helpers
+- check every return value for error handling (malloc, fork, exec, etc.)
+
+6. Aliases & Directory Teleportation
 - Implement alias feature for commands
-- Implement quick directory jumps (like bookmarks)
+- Implement quick directory jumps (like bookmarks) + pushd and popd
 
-6. Session-Based Checkpoints
+7. Session-Based Checkpoints
 - Save current working directory (cwd) as a checkpoint
 - Restore to a checkpoint later
 - Checkpoints exist only in current shell session
 
-7. Time-Travel Feature
-- Repeat last N commands
-- Store for each command:
-    - cwd
-    - command string
-    - exit code
-- Allow easy replay
-
 8. Other Enhancements
 - List all checkpoints
-- Combine checkpoints with time-travel for efficient debugging
-- History navigation (up/down arrows if you want) and tab completion
+
+9- fwatch <file_or_dir> with inotify
+
+10- jobs, fg, bg
+
+11- code docs like linux kernel, example:
+/**
+ * Gets a string value.
+ * @param input Input value
+ * @param output Pointer to store the result string (caller must free)
+ * @return 0 on success, negative error code on failure
+ */

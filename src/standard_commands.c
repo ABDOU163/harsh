@@ -33,7 +33,7 @@ int cd_handler(char **tokens){
 // used in forked children (caller forks and call this function)
 void exec_standard(char **tokens){
     if (strcmp(tokens[0], "exit")==0){
-        exit(0);
+        _exit(0);
     }
     if (strcmp(tokens[0], "cd")==0){
         cd_handler(tokens);
@@ -43,7 +43,7 @@ void exec_standard(char **tokens){
     execvp(tokens[0], tokens);
     // If execvp returns, there was an error
     perror(tokens[0]);
-    exit(EXIT_FAILURE);
+    _exit(EXIT_FAILURE);
 }
 
 
@@ -60,13 +60,13 @@ int standard_command_run(char **tokens){
     
     if (pid < 0) {
         perror("Fork failed");
-        exit(EXIT_FAILURE);
+        return -1;
     } else if (pid == 0) {
         // Child process
         execvp(tokens[0], tokens);
         // If execvp returns, there was an error
         perror(tokens[0]);
-        exit(EXIT_FAILURE);
+        _exit(EXIT_FAILURE);
     } 
     
     // Parent process

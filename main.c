@@ -12,13 +12,15 @@
 #include <readline/history.h>
 
 void execute(char *command){
-    bool is_special = false;
-    char **tokens = tokenize(command, &is_special);
-    if (tokens[0] == NULL){
-        free_tokens(tokens);
+    char **tokens = tokenize(command);
+    if (tokens == NULL){
         return;
     }
-    special_commands_run(tokens);
+    if (special_commands_run(tokens) < 0){
+        free_tokens(tokens);
+        fprintf(stderr, "Command run failed\n");
+        return;
+    }
     free_tokens(tokens);
 }
 
@@ -26,9 +28,13 @@ char* build_prompt(){
     char prompt[512];
     char hostname[128];
     gethostname(hostname, sizeof(hostname));
-    char *username= getenv("LOGNAME");
+    char *username = getenv("LOGNAME");
+    if (!username) username = "unknown";
     char cwd[128];
-    getcwd(cwd, 128);
+    if (getcwd(cwd, sizeof(cwd)) == NULL){
+        perror("getcwd");
+        strcpy(cwd, "?");
+    }
 
     // checking so /home/username = ~
     char *temp=cwd;
@@ -59,13 +65,19 @@ int real_main(){
     while (true)
     {
         char *prompt = build_prompt();
+        if (prompt == NULL){
+            perror("Failed to build prompt");
+            continue;
+        }
         char *line = readline(prompt);
         if (line == NULL){
             // EOF (Ctrl+D)
+            free(prompt);
             printf("\n");
             break;
         }
         if (*line == '\0'){
+            free(prompt);
             free(line);
             continue;
         }
@@ -78,20 +90,6 @@ int real_main(){
     return 0;
 }
 
-// -----------------------------------------
-// Signal handler function to reap zombie processes
-// not used in current version
-void sigchld_handler(int signum)
-{
-    pid_t pid;
-    int status;
-
-    // Reap all zombie processes
-    while ((pid = waitpid(-1, &status, WNOHANG)) > 0)
-    {
-        printf("Parent process reaped child process with PID %d.\n", pid);
-    }
-}
 
 
 // ------------------------------
@@ -127,7 +125,7 @@ int main(int argc, char *argv[], char *envp[]){
     // Register the signal handler for SIGCHLD
     sa.sa_handler = SIG_IGN ;
     sigemptyset(&sa.sa_mask);
-    sa.sa_flags = SA_RESTART || SA_NOCLDWAIT;
+    sa.sa_flags = SA_RESTART | SA_NOCLDWAIT;
 
     if (sigaction(SIGCHLD, &sa, NULL) == -1)
     {

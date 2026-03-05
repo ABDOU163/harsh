@@ -4,6 +4,46 @@
 #include <stdbool.h>
 #include "globals.h"
 
+char* tilde_expander(char *token) {
+    char* home = getenv("HOME");
+    if (!home) {
+        fprintf(stderr, "Warning: HOME environment variable not set\n");
+        return token;  // Return original token if HOME not set
+    }
+    
+    char* tilde_pos = strchr(token, '~');
+    
+    // If no tilde found, return original token
+    if (!tilde_pos) {
+        return token;
+    }
+    if (tilde_pos != token){
+        home+=1;
+    }
+    
+    size_t home_len = strlen(home);
+    size_t new_len = strlen(token) - 1 + home_len + 1; // -1 for ~, +1 for \0
+    
+    char* new_str = malloc(new_len);
+    if (!new_str) {
+        fprintf(stderr, "Error: malloc failed\n");
+        return token;  // Return original on failure
+    }
+    
+    // Copy part before ~
+    size_t prefix_len = tilde_pos - token;
+    strncpy(new_str, token, prefix_len);
+    new_str[prefix_len] = '\0';
+    
+    // Append HOME
+    strcat(new_str, home);
+    
+    // Append part after ~
+    strcat(new_str, tilde_pos + 1);
+    
+    return new_str;
+}
+
 // All of the following versions used tilde_expander, but the version in tokenizer.c uses glob directly for tilde and *,? expanding
 
 // --------------------------------------------------------------------------------------------
