@@ -7,7 +7,7 @@
 // This is for a simple special command, like a single pipe or a single redirect
 void special_command_run(char **tokens, int which_special){
 
-    int len = MAX_TOKENS / 2 + 1;
+    int len = MAX_TOKENS_LIMIT / 2 + 1;
     int i;
     char **left_cmd = malloc(sizeof(char *) * (len + 1));
     char **right_cmd = malloc(sizeof(char *) * (len + 1));
@@ -134,7 +134,7 @@ void handle_output_redirect(char **tokens, int which_special){
         // malloc an array of all tokens excluding the redirect operator and the file name
         int i, j;
         j=0;
-        char **cmd_tokens = malloc(sizeof(char *) * (MAX_TOKENS + 1));
+        char **cmd_tokens = malloc(sizeof(char *) * (MAX_TOKENS_LIMIT + 1));
         for (i = 0; tokens[i] != NULL; i++){
             if (i == which_special || i == which_special + 1){
                 continue;
@@ -164,7 +164,7 @@ void handle_input_redirect(char **tokens, int which_special){
         // malloc an array of all tokens excluding the redirect operator and the file name
         int i, j;
         j=0;
-        char **cmd_tokens = malloc(sizeof(char *) * (MAX_TOKENS + 1));
+        char **cmd_tokens = malloc(sizeof(char *) * (MAX_TOKENS_LIMIT + 1));
         for (i = 0; tokens[i] != NULL; i++){
             if (i == which_special || i == which_special + 1){
                 continue;

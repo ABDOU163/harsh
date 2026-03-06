@@ -52,7 +52,7 @@ char* tilde_expander(char *token) {
 
 char** tokenize(char *command, bool *is_special) {
     remove_trailing_spaces(command);
-    char **tokens = malloc((MAX_TOKENS+1) * sizeof(char*));
+    char **tokens = malloc((MAX_TOKENS_LIMIT+1) * sizeof(char*));
     *is_special = false;
     char *token;
     int position = 0;
@@ -74,7 +74,7 @@ char** tokenize(char *command, bool *is_special) {
         tokens[position] = tilde_expander(token);
         position++;
 
-        if (position >= MAX_TOKENS) {
+        if (position >= MAX_TOKENS_LIMIT) {
             fprintf(stderr, "Too many tokens\n");
             exit(EXIT_FAILURE);
         }
@@ -94,7 +94,7 @@ char** tokenize(char *command, bool *is_special) {
 
 char** tokenize(char *command, bool *is_special) {
     remove_trailing_spaces(command);
-    char **tokens = malloc((MAX_TOKENS+1) * sizeof(char*));
+    char **tokens = malloc((MAX_TOKENS_LIMIT+1) * sizeof(char*));
     *is_special = false;
     int position = 0;
     
@@ -109,7 +109,7 @@ char** tokenize(char *command, bool *is_special) {
     while (*ptr == ' ' || *ptr == '\t' || *ptr == '\n') ptr++;
     
     while (*ptr != '\0') {
-        if (position >= MAX_TOKENS) {
+        if (position >= MAX_TOKENS_LIMIT) {
             fprintf(stderr, "Too many tokens\n");
             exit(EXIT_FAILURE);
         }
@@ -229,10 +229,10 @@ char* postprocess_token(char *token, char **idx, int *count, int size, bool *quo
 
 char** tokenize(char *command, bool *is_special) {
     remove_trailing_spaces(command);
-    char **tokens = malloc((MAX_TOKENS + 1) * sizeof(char*));
+    char **tokens = malloc((MAX_TOKENS_LIMIT + 1) * sizeof(char*));
     *is_special = false;
     int position = 0;
-    char *idx[MAX_TOKENS];
+    char *idx[MAX_TOKENS_LIMIT];
     int count, size;
     bool quotes;
     
@@ -247,7 +247,7 @@ char** tokenize(char *command, bool *is_special) {
     // Use strtok to tokenize
     char *token = strtok(command, " ");
     while (token != NULL) {
-        if (position >= MAX_TOKENS) {
+        if (position >= MAX_TOKENS_LIMIT) {
             fprintf(stderr, "Too many tokens\n");
             exit(EXIT_FAILURE);
         }

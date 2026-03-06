@@ -6,6 +6,10 @@
 #include <glob.h>
 
 
+/**
+ * Remove trailing whitespace (spaces, newlines, tabs) from a string in-place.
+ * @param str String to trim (modified in-place)
+ */
 void remove_trailing_spaces(char *str) {
     int len = strlen(str);
     while (len > 0 && (str[len - 1] == ' ' || str[len - 1] == '\n' || str[len - 1] == '\t')) {
@@ -31,7 +35,13 @@ void glob_expander_print_free(char *token){
 #define SPACE_PLACEHOLDER 'a'
 // it is sufficient that the SPACE_PLACEHOLDER is not equal to any of the delimiters of strtok
 
-// Pre-process: replace spaces inside quotes with placeholder
+/**
+ * Pre-process a command string: replace spaces inside quotes with a placeholder
+ * character so that strtok does not split quoted strings.
+ * @param str  Command string (modified in-place)
+ * @param idx  Output array of pointers to replaced characters (for restoration)
+ * @param size Output: number of replacements made
+ */
 void preprocess_quotes(char *str, char **idx, int *size) {
     bool in_single_quote = false;
     bool in_double_quote = false;
@@ -50,7 +60,16 @@ void preprocess_quotes(char *str, char **idx, int *size) {
     *size = i;
 }
 
-// Post-process: restore placeholders to spaces and strip surrounding quotes
+/**
+ * Post-process a token: restore placeholder characters back to spaces and
+ * strip surrounding quotes if present.
+ * @param token  Token string (modified in-place)
+ * @param idx    Array of pointers to placeholder positions (from preprocess_quotes)
+ * @param count  In/out: current index into idx array
+ * @param size   Total number of placeholders
+ * @param quotes Output: set to true if surrounding quotes were stripped
+ * @return Pointer to the processed token (may be offset from input if quotes stripped)
+ */
 char* postprocess_token(char *token, char **idx, int *count, int size, bool *quotes) {
     // Restore placeholder characters back to spaces
     for (char *p = token; *p != '\0'; p++) {
@@ -72,11 +91,18 @@ char* postprocess_token(char *token, char **idx, int *count, int size, bool *quo
     return token;
 }
 
+/**
+ * Tokenize a command string into a NULL-terminated array of strings.
+ * Handles quoted strings, glob/tilde expansion, and produces heap-allocated
+ * copies of each token. The caller must free the result with free_tokens().
+ * @param command Raw command string (modified in-place by strtok)
+ * @return NULL-terminated array of heap-allocated token strings, or NULL on error
+ */
 char** tokenize(char *command) {
     remove_trailing_spaces(command);
-    char **tokens = malloc((MAX_TOKENS + 1) * sizeof(char*));
+    char **tokens = malloc((MAX_TOKENS_LIMIT + 1) * sizeof(char*));
     int position = 0;
-    char *idx[MAX_TOKENS];
+    char *idx[MAX_TOKENS_LIMIT];
     int count, size;
     bool quotes;
     
@@ -91,7 +117,7 @@ char** tokenize(char *command) {
     // Use strtok to tokenize
     char *token = strtok(command, " ");
     while (token != NULL) {
-        if (position >= MAX_TOKENS) {
+        if (position >= MAX_TOKENS_LIMIT) {
             fprintf(stderr, "Too many tokens\n");
             free_tokens(tokens);
             return NULL;
@@ -113,7 +139,7 @@ char** tokenize(char *command) {
             int ret=glob(processed_token, GLOB_TILDE | GLOB_MARK, NULL, &glob_result);
             if (ret == 0) {
                 for (size_t i = 0; i < glob_result.gl_pathc; i++) {
-                    if (position >= MAX_TOKENS) {
+                    if (position >= MAX_TOKENS_LIMIT) {
                         fprintf(stderr, "Too many tokens (glob expansion)\n");
                         globfree(&glob_result);
                         free_tokens(tokens);

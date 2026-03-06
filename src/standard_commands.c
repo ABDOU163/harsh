@@ -8,7 +8,12 @@
 #include <sys/wait.h>
 #include <signal.h>
 
-int cd_handler(char **tokens){    
+/**
+ * Handle the built-in cd command.
+ * @param tokens NULL-terminated token array where tokens[0] is "cd"
+ * @return 0 on success, 1 on error (missing arg, too many args, chdir failure)
+ */
+int cd_handler(char **tokens){
     if (tokens[1] == NULL){
         fprintf(stderr, "cd: expected argument\n");
         return 1;
@@ -30,7 +35,13 @@ int cd_handler(char **tokens){
 }
 
 
-// used in forked children (caller forks and call this function)
+/**
+ * Execute a command in a forked child process.
+ * Handles built-ins (exit, cd) directly; for external commands, replaces
+ * the process image with execvp. This function does not return for external
+ * commands or exit; it only returns for cd.
+ * @param tokens NULL-terminated token array where tokens[0] is the command
+ */
 void exec_standard(char **tokens){
     if (strcmp(tokens[0], "exit")==0){
         _exit(0);
@@ -47,6 +58,7 @@ void exec_standard(char **tokens){
 }
 
 
+// this function is not used in the current version
 // used when no need to fork in the caller (caller does not fork)
 int standard_command_run(char **tokens){
     if (strcmp(tokens[0], "exit")==0){

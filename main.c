@@ -11,19 +11,30 @@
 #include <readline/readline.h>
 #include <readline/history.h>
 
+/**
+ * Tokenize and execute a shell command line.
+ * Parses the command into tokens, scans for operators, and dispatches
+ * execution through the operator hierarchy (;/& → &&/|| → | → redirects).
+ * @param command Raw command string from user input (modified in-place by strtok)
+ */
 void execute(char *command){
     char **tokens = tokenize(command);
     if (tokens == NULL){
         return;
     }
-    if (special_commands_run(tokens) < 0){
-        free_tokens(tokens);
-        fprintf(stderr, "Command run failed\n");
-        return;
-    }
+    int total = 0;
+    while (tokens[total] != NULL) total++;
+    ops_t ops;
+    scan_operators(tokens, &ops);
+    special_commands_run(tokens, &ops, 0, total);
     free_tokens(tokens);
 }
 
+/**
+ * Build the shell prompt string.
+ * Format: username@hostname:cwd$ with ~ substitution for the home directory.
+ * @return Heap-allocated prompt string (caller must free), or NULL on failure
+ */
 char* build_prompt(){
     char prompt[512];
     char hostname[128];
@@ -59,6 +70,12 @@ char* build_prompt(){
 }
 
 
+/**
+ * Main shell REPL loop.
+ * Reads user input via readline, manages history, and dispatches commands.
+ * Runs until EOF (Ctrl+D) is received.
+ * @return 0 on normal exit
+ */
 int real_main(){
     setvbuf(stdout, NULL, _IONBF, 0);
     stifle_history(HISTORY_LENGTH);
@@ -113,11 +130,6 @@ int test_main() {
 }
 // ------------------------------
 
-// todo:
-// - handle multiple special commands in one go
-// add tab completion using wildcard expansion (glob) and readline library
-// study and implement signal handling for background processes (SIGCHLD) to prevent zombie processes
-// study and implement processes and threads for handling multiple commands and background processes
 int main(int argc, char *argv[], char *envp[]){
     pid_t child_pid;
     struct sigaction sa;

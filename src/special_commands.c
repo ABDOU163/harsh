@@ -4,30 +4,43 @@
 #include <stdbool.h>
 #include "includes.h"
 
-int setup_redirection_fd(char **tokens, int which_special){
+// ---- Redirection helpers ----
+
+/**
+ * Sets up a file descriptor for redirection.
+ * @param tokens Token array
+ * @param redir_pos Index of the redirect operator
+ * @return 0 on success, -1 on failure
+ */
+int setup_redirection_fd(char **tokens, int redir_pos){
     int fd;
-    int to_fd=-1;
-    char *redirect = tokens[which_special];
+    int to_fd = -1;
+    char *redirect = tokens[redir_pos];
+    char *filename = tokens[redir_pos + 1];
+
+    if (filename == NULL){
+        fprintf(stderr, "syntax error: redirect '%s' missing filename\n", redirect);
+        return -1;
+    }
+
     int flags = O_WRONLY | O_CREAT;
     if (strcmp(redirect, ">>") == 0 || strcmp(redirect, "2>>") == 0){
         flags |= O_APPEND;
     } else if (strcmp(redirect, ">") == 0 || strcmp(redirect, "2>") == 0){
         flags |= O_TRUNC;
     }
+
     if (strcmp(redirect, "<") == 0){
         to_fd = STDIN_FILENO;
-        fd = open(tokens[which_special + 1], O_RDONLY);
-    }
-    else if (strcmp(redirect, ">") == 0 || strcmp(redirect, ">>") == 0){
+        fd = open(filename, O_RDONLY);
+    } else if (strcmp(redirect, ">") == 0 || strcmp(redirect, ">>") == 0){
         to_fd = STDOUT_FILENO;
-        fd = open(tokens[which_special + 1], flags, 0644);
-    }
-    else if (strcmp(redirect, "2>") == 0 || strcmp(redirect, "2>>") == 0){
+        fd = open(filename, flags, 0644);
+    } else if (strcmp(redirect, "2>") == 0 || strcmp(redirect, "2>>") == 0){
         to_fd = STDERR_FILENO;
-        fd = open(tokens[which_special + 1], flags, 0644);
-    }
-    else{
-        perror("Invalid redirect operator");
+        fd = open(filename, flags, 0644);
+    } else {
+        fprintf(stderr, "Invalid redirect operator: %s\n", redirect);
         return -1;
     }
 
@@ -47,20 +60,11 @@ int setup_redirection_fd(char **tokens, int which_special){
     return 0;
 }
 
-// always run this in a child process, except for built-in commands, which we will handle separately by saving and restoring fds
-int setup_redirect_execute(char **tokens, int *which_special, char **cmd_tokens, int count){
-    for (int i=0; i < count; i++){
-        if (setup_redirection_fd(tokens, which_special[i]) < 0){
-            fprintf(stderr, "Redirection setup failed: %s %s\n", tokens[which_special[i]], tokens[which_special[i] + 1]);
-            return -1;
-        }
-    }
-    if (*cmd_tokens != NULL){
-        exec_standard(cmd_tokens);
-    }
-    return 0;
-}
-
+/**
+ * Saves standard input, output, and error file descriptors.
+ * @param saved_fds Array to store the 3 saved fds
+ * @return 0 on success, -1 on failure
+ */
 int save_fds(int *saved_fds){
     saved_fds[0] = dup(STDIN_FILENO);
     saved_fds[1] = dup(STDOUT_FILENO);
@@ -72,6 +76,11 @@ int save_fds(int *saved_fds){
     return 0;
 }
 
+/**
+ * Restores standard file descriptors from a saved array.
+ * @param saved_fds Array containing the 3 saved fds
+ * @return 0 on success, -1 on failure
+ */
 int restore_fds(int *saved_fds){
     if (dup2(saved_fds[0], STDIN_FILENO) < 0 || dup2(saved_fds[1], STDOUT_FILENO) < 0 || dup2(saved_fds[2], STDERR_FILENO) < 0){
         perror("Failed to restore file descriptors");
@@ -84,122 +93,155 @@ int restore_fds(int *saved_fds){
     return 0;
 }
 
-void get_cmd_tokens(char **tokens, int *which_special, int *count, char **cmd_tokens){
-    int i, j, k;
-    for (i = 0; tokens[i] != NULL; i++){
-        for (j = 0; redirects[j] != NULL; j++){
-            if (strcmp(tokens[i], redirects[j]) == 0){
-                which_special[(*count)++] = i;
-                break;
-            }
+/**
+ * Sets up redirections and executes the command.
+ * @param tokens Token array
+ * @param redir_positions Array of redirect operator indices
+ * @param redir_count Number of redirections
+ * @param cmd_tokens Command tokens to execute
+ * @return 0 on success, -1 on failure
+ */
+int setup_redirect_execute(char **tokens, int *redir_positions, int redir_count, char **cmd_tokens){
+    for (int i = 0; i < redir_count; i++){
+        if (setup_redirection_fd(tokens, redir_positions[i]) < 0){
+            fprintf(stderr, "Redirection setup failed: %s\n", tokens[redir_positions[i]]);
+            return -1;
         }
     }
-    which_special[*count] = -1; 
-    k=0;
-    j=0;
-    i=0;
-    for (i = 0; tokens[i] != NULL && k<*count; i++){
-        if (i == which_special[k]){
-            continue;  
+    if (cmd_tokens[0] != NULL){
+        exec_standard(cmd_tokens);
+    }
+    return 0;
+}
+
+/**
+ * Extracts tokens into 2 categories: redirections and command tokens for command execution.
+ * @param tokens Token array
+ * @param ops Pre-scanned operators
+ * @param start Start index of segment
+ * @param end End index of segment
+ * @param redir_positions Output array for redirect indices
+ * @param redir_count Output count of redirections
+ * @param cmd_tokens Output array for command tokens
+ */
+void get_cmd_tokens(char **tokens, ops_t *ops, int start, int end,
+                    int *redir_positions, int *redir_count, char **cmd_tokens){
+    *redir_count = 0;
+
+    // Collect redirects in [start, end)
+    for (int i = 0; i < ops->redir_count; i++){
+        if (ops->redir_pos[i] >= start && ops->redir_pos[i] < end){
+            redir_positions[(*redir_count)++] = ops->redir_pos[i];
         }
-        if (i == which_special[k] + 1){
-            k++;       
+    }
+
+    // Build cmd_tokens: tokens in [start, end) that are NOT redirect ops or their filenames
+    int j = 0;
+    int r = 0; // index into redir_positions
+    for (int i = start; i < end; i++){
+        if (r < *redir_count && i == redir_positions[r]){
+            i++; // skip the redirect operator AND the filename (i++ here, loop i++ skips filename)
+            r++;
             continue;
         }
         cmd_tokens[j++] = tokens[i];
     }
-    for (; tokens[i] != NULL; i++){
-        cmd_tokens[j++] = tokens[i];
-    }
-    cmd_tokens[j] = (char *)NULL;
+    cmd_tokens[j] = NULL;
 }
 
-// no need to fork to use this function
-// if you want to fork you can use setup_redirect_execute
-int multiple_redirects_run(char **tokens){
-    int *which_special = malloc(MAX_TOKENS * sizeof(int));
-    if (which_special == NULL){
-        return -1;
-    }
-    int count = 0;
-    int status = 0;
-    char **cmd_tokens = malloc(sizeof(char *) * (MAX_TOKENS + 1));
-    if (cmd_tokens == NULL){
-        free(which_special);
-        return -1;
-    }
-    get_cmd_tokens(tokens, which_special, &count, cmd_tokens);
 
-    if (*cmd_tokens == NULL){
+// ---- Layer 4: Handle redirections for a single command segment ----
+
+/**
+ * Handles multiple redirections for a single command segment.
+ * @param tokens Token array
+ * @param ops Pre-scanned operators
+ * @param start Start index of segment
+ * @param end End index of segment
+ * @return Wait status of the child, or -1 on fork failure
+ */
+int multiple_redirects_run(char **tokens, ops_t *ops, int start, int end){
+    int redir_positions[MAX_TOKENS_LIMIT];
+    int redir_count = 0;
+    char *cmd_tokens[MAX_TOKENS_LIMIT + 1];
+
+    get_cmd_tokens(tokens, ops, start, end, redir_positions, &redir_count, cmd_tokens);
+
+    int status = 0;
+
+    if (cmd_tokens[0] == NULL){
         // No command, only redirects (e.g. "> file")
-        // Still set up redirects in case there are side effects (file creation)
         pid_t pid = fork();
         if (pid < 0){
             perror("fork");
-            status = -1;
+            return -1;
         } else if (pid == 0){
-            setup_redirect_execute(tokens, which_special, cmd_tokens, count);
+            setup_redirect_execute(tokens, redir_positions, redir_count, cmd_tokens);
             _exit(0);
         } else {
             wait(&status);
         }
-    } else if (strcmp(*cmd_tokens, "exit") == 0 || strcmp(*cmd_tokens, "cd") ==0){
+    } else if (strcmp(cmd_tokens[0], "exit") == 0 || strcmp(cmd_tokens[0], "cd") == 0){
+        // Built-in: run in parent with saved/restored fds
         int fds[3];
-        if (save_fds(fds) < 0){
-            _exit(EXIT_FAILURE);
-        }
-        int ret = setup_redirect_execute(tokens, which_special, cmd_tokens, count);
-        if (restore_fds(fds) < 0){
-            _exit(EXIT_FAILURE);
-        }
-        if (ret < 0){
-            status = -1;
-        }
-    } else{
+        if (save_fds(fds) < 0) return -1;
+        int ret = setup_redirect_execute(tokens, redir_positions, redir_count, cmd_tokens);
+        if (restore_fds(fds) < 0) return -1;
+        if (ret < 0) status = -1;
+    } else {
+        // External command: fork and exec
         pid_t pid = fork();
         if (pid < 0){
             perror("fork");
-            status = -1;
+            return -1;
         } else if (pid == 0){
-            if (setup_redirect_execute(tokens, which_special, cmd_tokens, count) < 0){
+            if (setup_redirect_execute(tokens, redir_positions, redir_count, cmd_tokens) < 0){
                 _exit(EXIT_FAILURE);
             }
+            _exit(0);
         } else {
             wait(&status);
         }
     }
-    free(cmd_tokens);
-    free(which_special);
     return status;
 }
 
+// ---- Layer 3: Handle pipe operators within a range ----
 
-
-int handle_multiple_pipes(char **tokens){
-    // Count pipe operators and collect their positions
-    int pipe_positions[MAX_TOKENS];
+/**
+ * Handles multiple pipe operators within a range.
+ * @param tokens Token array
+ * @param ops Pre-scanned operators
+ * @param start Start index of segment
+ * @param end End index of segment
+ * @return Wait status of the last command in pipeline, or -1 on error
+ */
+int handle_multiple_pipes(char **tokens, ops_t *ops, int start, int end){
+    // Collect pipe positions within [start, end)
+    int local_pipes[MAX_TOKENS_LIMIT];
     int pipe_count = 0;
-    for (int i = 0; tokens[i] != NULL; i++){
-        if (strcmp(tokens[i], "|") == 0){
-            pipe_positions[pipe_count++] = i;
+    for (int i = 0; i < ops->pipe_count; i++){
+        if (ops->pipe_pos[i] >= start && ops->pipe_pos[i] < end){
+            local_pipes[pipe_count++] = ops->pipe_pos[i];
         }
     }
 
-    // If no pipes, just run with multiple redirects
+    // If no pipes, just run with redirects
     if (pipe_count == 0){
-        return multiple_redirects_run(tokens);
+        return multiple_redirects_run(tokens, ops, start, end);
     }
 
     int num_segments = pipe_count + 1;
 
-    // Nullify pipe tokens in-place to create natural NULL-terminated segments
-    // and collect pointers to the start of each segment
-    char **seg_starts[num_segments];
-    seg_starts[0] = tokens;
+    // Build segment boundaries: [seg_start[i], seg_end[i])
+    int seg_start[num_segments];
+    int seg_end[num_segments];
+    seg_start[0] = start;
     for (int p = 0; p < pipe_count; p++){
-        tokens[pipe_positions[p]] = NULL;  // nullify the "|" token
-        seg_starts[p + 1] = tokens + pipe_positions[p] + 1;
+        seg_end[p] = local_pipes[p];       // segment ends at the pipe
+        seg_start[p + 1] = local_pipes[p] + 1; // next segment starts after the pipe
     }
+    seg_end[num_segments - 1] = end;
 
     // Create pipe fd pairs
     int pipefds[pipe_count][2];
@@ -220,12 +262,10 @@ int handle_multiple_pipes(char **tokens){
         pids[i] = fork();
         if (pids[i] < 0){
             perror("fork");
-            // Close all pipe fds so children get EOF/SIGPIPE and can terminate
             for (int j = 0; j < pipe_count; j++){
                 close(pipefds[j][0]);
                 close(pipefds[j][1]);
             }
-            // Wait for already-forked children to prevent orphans
             for (int j = 0; j < i; j++){
                 waitpid(pids[j], NULL, 0);
             }
@@ -253,25 +293,15 @@ int handle_multiple_pipes(char **tokens){
                 close(pipefds[p][1]);
             }
 
-            // Use get_cmd_tokens to extract redirects, then execute
-            int *which_special = malloc(MAX_TOKENS * sizeof(int));
-            int count = 0;
-            char **cmd_tokens = malloc(sizeof(char *) * (MAX_TOKENS + 1));
-            if (!which_special || !cmd_tokens){
-                perror("malloc");
-                free(which_special);
-                free(cmd_tokens);
-                _exit(EXIT_FAILURE);
-            }
-            get_cmd_tokens(seg_starts[i], which_special, &count, cmd_tokens);
+            // Extract redirects and command for this segment, then execute
+            int redir_positions[MAX_TOKENS_LIMIT];
+            int redir_count = 0;
+            char *cmd_tokens[MAX_TOKENS_LIMIT + 1];
+            get_cmd_tokens(tokens, ops, seg_start[i], seg_end[i],
+                           redir_positions, &redir_count, cmd_tokens);
 
-            if (setup_redirect_execute(seg_starts[i], which_special, cmd_tokens, count) <0){
-                free(cmd_tokens);
-                free(which_special);
-                _exit(EXIT_FAILURE);
-            }
-            free(cmd_tokens);
-            free(which_special);
+            setup_redirect_execute(tokens, redir_positions, redir_count, cmd_tokens);
+            _exit(EXIT_FAILURE);
         }
     }
 
@@ -283,112 +313,126 @@ int handle_multiple_pipes(char **tokens){
 
     // Wait for all children, capture status of the last one
     int status = 0;
-    int temp = status;
     for (int i = 0; i < num_segments; i++){
         waitpid(pids[i], &status, 0);
-        temp |= status;
     }
-    return temp;
+    return status;
 }
 
+// ---- Layer 2: Handle && and || operators within a range ----
 
-int handle_and_or(char **tokens){
-    // Collect positions and types of && and || operators
-    int op_positions[MAX_TOKENS];
-    int op_types[MAX_TOKENS]; // 0 = &&, 1 = ||
-    int op_count = 0;
-    for (int i = 0; tokens[i] != NULL; i++){
-        if (strcmp(tokens[i], "&&") == 0){
-            op_positions[op_count] = i;
-            op_types[op_count] = 0;
-            op_count++;
-        } else if (strcmp(tokens[i], "||") == 0){
-            op_positions[op_count] = i;
-            op_types[op_count] = 1;
-            op_count++;
+/**
+ * Handles && and || operators within a range.
+ * @param tokens Token array
+ * @param ops Pre-scanned operators
+ * @param start Start index
+ * @param end End index
+ * @return Status of the last executed command
+ */
+int handle_and_or(char **tokens, ops_t *ops, int start, int end){
+    // Collect && / || positions within [start, end)
+    int local_pos[MAX_TOKENS_LIMIT];
+    int local_types[MAX_TOKENS_LIMIT];
+    int local_count = 0;
+    for (int i = 0; i < ops->andor_count; i++){
+        if (ops->andor_pos[i] >= start && ops->andor_pos[i] < end){
+            local_pos[local_count] = ops->andor_pos[i];
+            local_types[local_count] = ops->andor_types[i];
+            local_count++;
         }
     }
 
-    // If no && or ||, just run with handle_multiple_pipes
-    if (op_count == 0){
-        return handle_multiple_pipes(tokens);
+    // If no && or ||, just run with pipes
+    if (local_count == 0){
+        return handle_multiple_pipes(tokens, ops, start, end);
     }
 
-    int num_segments = op_count + 1;
+    int num_segments = local_count + 1;
 
-    // Nullify operator tokens in-place and collect segment start indices
-    int seg_starts[num_segments];
-    seg_starts[0] = 0;
-    for (int p = 0; p < op_count; p++){
-        tokens[op_positions[p]] = NULL;
-        seg_starts[p + 1] = op_positions[p] + 1;
+    // Build segment boundaries
+    int seg_start[num_segments];
+    int seg_end[num_segments];
+    seg_start[0] = start;
+    for (int p = 0; p < local_count; p++){
+        seg_end[p] = local_pos[p];
+        seg_start[p + 1] = local_pos[p] + 1;
     }
+    seg_end[num_segments - 1] = end;
 
     // Run segments left-to-right, short-circuiting based on operator
-    int status = handle_multiple_pipes(tokens);
-    for (int i = 0; i < op_count; i++){
-        if (op_types[i] == 0){ // &&
+    int status = handle_multiple_pipes(tokens, ops, seg_start[0], seg_end[0]);
+    for (int i = 0; i < local_count; i++){
+        if (local_types[i] == 0){ // &&
             if (status != 0) continue;
         } else { // ||
             if (status == 0) continue;
         }
-        status = handle_multiple_pipes(tokens + seg_starts[i + 1]);
+        status = handle_multiple_pipes(tokens, ops, seg_start[i + 1], seg_end[i + 1]);
     }
-    return 0;
+    return status;
 }
 
+// ---- Layer 1: Handle ; and & operators (top-level) ----
 
-int special_commands_run(char **tokens){
-    // Collect positions and types of ; and & operators
-    int op_positions[MAX_TOKENS];
-    int op_types[MAX_TOKENS]; // 0 = ;, 1 = &
-    int op_count = 0;
-    for (int i = 0; tokens[i] != NULL; i++){
-        if (strcmp(tokens[i], ";") == 0){
-            op_positions[op_count] = i;
-            op_types[op_count] = 0;
-            op_count++;
-        } else if (strcmp(tokens[i], "&") == 0){
-            op_positions[op_count] = i;
-            op_types[op_count] = 1;
-            op_count++;
+/**
+ * Handles ; and & top-level operators.
+ * @param tokens Token array
+ * @param ops Pre-scanned operators
+ * @param start Start index
+ * @param end End index
+ * @return Status of the last foreground command
+ */
+int special_commands_run(char **tokens, ops_t *ops, int start, int end){
+    // Collect ; / & positions within [start, end)
+    // no need for it in the current version, but will be useful if we add 
+    // higher precedance special operators
+    int local_pos[MAX_TOKENS_LIMIT];
+    int local_types[MAX_TOKENS_LIMIT];
+    int local_count = 0;
+    for (int i = 0; i < ops->seqbg_count; i++){
+        if (ops->seqbg_pos[i] >= start && ops->seqbg_pos[i] < end){
+            local_pos[local_count] = ops->seqbg_pos[i];
+            local_types[local_count] = ops->seqbg_types[i];
+            local_count++;
         }
     }
 
-    // If no ; or &, just run with handle_and_or
-    if (op_count == 0){
-        return handle_and_or(tokens);
+    // If no ; or &, just run with and/or
+    if (local_count == 0){
+        return handle_and_or(tokens, ops, start, end);
     }
 
-    int num_segments = op_count + 1;
+    int num_segments = local_count + 1;
 
-    // Nullify operator tokens in-place and collect segment start indices
-    int seg_starts[num_segments];
-    seg_starts[0] = 0;
-    for (int p = 0; p < op_count; p++){
-        tokens[op_positions[p]] = NULL;
-        seg_starts[p + 1] = op_positions[p] + 1;
+    // Build segment boundaries
+    int seg_start[num_segments];
+    int seg_end[num_segments];
+    seg_start[0] = start;
+    for (int p = 0; p < local_count; p++){
+        seg_end[p] = local_pos[p];
+        seg_start[p + 1] = local_pos[p] + 1;
     }
+    seg_end[num_segments - 1] = end;
 
     // Run each segment according to the operator that follows it
     int status = 0;
     for (int i = 0; i < num_segments; i++){
         // Skip empty segments (e.g. trailing ; or &)
-        if (tokens[seg_starts[i]] == NULL) continue;
+        if (seg_start[i] >= seg_end[i]) continue;
 
-        if (i < op_count && op_types[i] == 1){ // & : run in background
+        if (i < local_count && local_types[i] == 1){ // & : run in background
             pid_t pid = fork();
             if (pid < 0){
                 perror("fork");
                 return -1;
             }
             if (pid == 0){
-                handle_and_or(tokens + seg_starts[i]);
+                handle_and_or(tokens, ops, seg_start[i], seg_end[i]);
                 _exit(0);
             }
             // parent does not wait — background
         } else { // ; or last segment: run in foreground
-            status = handle_and_or(tokens + seg_starts[i]);
+            status = handle_and_or(tokens, ops, seg_start[i], seg_end[i]);
         }
     }
     return status;

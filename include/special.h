@@ -1,6 +1,8 @@
 #ifndef SPECIAL_H
 #define SPECIAL_H
 
-int special_commands_run(char **tokens);
+#include "globals.h"
+
+int special_commands_run(char **tokens, ops_t *ops, int start, int end);
 
 #endif

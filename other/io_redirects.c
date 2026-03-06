@@ -54,7 +54,7 @@ void handle_output_redirect(char **tokens, int which_special){
         // malloc an array of all tokens excluding the redirect operator and the file name
         int i, j;
         j=0;
-        char **cmd_tokens = malloc(sizeof(char *) * (MAX_TOKENS + 1));
+        char **cmd_tokens = malloc(sizeof(char *) * (MAX_TOKENS_LIMIT + 1));
         for (i = 0; tokens[i] != NULL; i++){
             if (i == which_special || i == which_special + 1){
                 continue;
@@ -84,7 +84,7 @@ void handle_input_redirect(char **tokens, int which_special){
         // malloc an array of all tokens excluding the redirect operator and the file name
         int i, j;
         j=0;
-        char **cmd_tokens = malloc(sizeof(char *) * (MAX_TOKENS + 1));
+        char **cmd_tokens = malloc(sizeof(char *) * (MAX_TOKENS_LIMIT + 1));
         for (i = 0; tokens[i] != NULL; i++){
             if (i == which_special || i == which_special + 1){
                 continue;
