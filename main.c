@@ -13,12 +13,37 @@
 
 /**
  * Tokenize and execute a shell command line.
+ * Applies history expansion (!! !n !-n !string) before tokenizing.
  * Parses the command into tokens, scans for operators, and dispatches
  * execution through the operator hierarchy (;/& → &&/|| → | → redirects).
  * @param command Raw command string from user input (modified in-place by strtok)
  */
 void execute(char *command){
-    char **tokens = tokenize(command);
+    // History expansion: !!, !n, !-n, !string
+    // MUST run BEFORE add_history, otherwise !! would resolve to itself.
+    // ret: -1 = error, 0 = no expansion, 1 = expanded, 2 = display only (don't run)
+    char *expanded = NULL;
+    int ret = history_expand(command, &expanded);
+    if (ret == 2){
+        // e.g. ":p" modifier — print the expansion but don't execute
+        printf("%s\n", expanded);
+        free(expanded);
+        return;
+    }
+    if (ret < 0){
+        fprintf(stderr, "%s\n", expanded);
+        free(expanded);
+        return;
+    }
+    char *to_run = (ret == 1) ? expanded : command;
+
+    // Add to history AFTER expansion:
+    // - If expanded, add the expanded form (e.g. "echo hello" not "!!")
+    // - If no expansion, add the original command
+    add_history(to_run);
+
+    char **tokens = tokenize(to_run);
+    if (ret == 1) free(expanded);
     if (tokens == NULL){
         return;
     }
@@ -78,6 +103,10 @@ char* build_prompt(){
  */
 int real_main(){
     setvbuf(stdout, NULL, _IONBF, 0);
+    if (init_alias_table() != 0){
+        fprintf(stderr, "Failed to initialize alias table\n");
+        return 1;
+    }
     stifle_history(HISTORY_LENGTH);
     while (true)
     {
@@ -98,7 +127,6 @@ int real_main(){
             free(line);
             continue;
         }
-        add_history(line);
         execute(line);
         free(line);
         free(prompt);

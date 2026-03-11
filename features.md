@@ -20,18 +20,14 @@ Custom Shell Feature Roadmap
 
 4. Pipes and others ✔️
 - Support standard pipes and other operators: ; && || & ✔️
-- History navigation (up/down arrows if you want) and tab completion + !! and !n✔️
 
-5- Unify code structure:
-- avoid void functions, return error codes instead
-- consistent error handling
-- consistent function signatures (e.g., all functions that can fail should return int)
-- use static functions for internal helpers
-- check every return value for error handling (malloc, fork, exec, etc.)
+5- Unify code structure: ✔️
+- consistent error handling ✔️
+- consistent function signatures (e.g., all functions that can fail should return int) ✔️
 
-6. Aliases & Directory Teleportation
-- Implement alias feature for commands
-- Implement quick directory jumps (like bookmarks) + pushd and popd
+6. Aliases & Directory Teleportation ✔️
+- Implement alias feature for commands + --color=auto for ls, grep etc... ✔️
+- Implement quick directory jumps (like bookmarks) ✔️ + pushd and popd
 
 7. Session-Based Checkpoints
 - Save current working directory (cwd) as a checkpoint
@@ -40,12 +36,13 @@ Custom Shell Feature Roadmap
 
 8. Other Enhancements
 - List all checkpoints
+- History navigation (up/down arrows if you want) and tab completion + !! and !n ✔️
 
-9- fwatch <file_or_dir> with inotify
+9. fwatch <file_or_dir> with inotify
 
-10- jobs, fg, bg
+10. jobs, fg, bg
 
-11- code docs like linux kernel, example:
+11. code docs like linux kernel, example: ✔️
 /**
  * Gets a string value.
  * @param input Input value

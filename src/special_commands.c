@@ -167,6 +167,15 @@ int multiple_redirects_run(char **tokens, ops_t *ops, int start, int end){
 
     get_cmd_tokens(tokens, ops, start, end, redir_positions, &redir_count, cmd_tokens);
 
+    // Apply alias expansion BEFORE the builtin/fork decision.
+    // This ensures aliased builtins (e.g. "alias back cd ..") are correctly
+    // identified as parent-process builtins rather than being forked.
+    if (cmd_tokens[0] != NULL){
+        if (apply_aliases(cmd_tokens) != 0){
+            return -1;
+        }
+    }
+
     int status = 0;
 
     if (cmd_tokens[0] == NULL){
@@ -181,7 +190,7 @@ int multiple_redirects_run(char **tokens, ops_t *ops, int start, int end){
         } else {
             wait(&status);
         }
-    } else if (strcmp(cmd_tokens[0], "exit") == 0 || strcmp(cmd_tokens[0], "cd") == 0){
+    } else if (strcmp(cmd_tokens[0], "exit") == 0 || strcmp(cmd_tokens[0], "cd") == 0 || strcmp(cmd_tokens[0], "alias") == 0){
         // Built-in: run in parent with saved/restored fds
         int fds[3];
         if (save_fds(fds) < 0) return -1;
