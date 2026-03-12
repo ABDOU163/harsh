@@ -45,3 +45,5 @@ Custom Shell Feature Roadmap
  * @param output Pointer to store the result string (caller must free)
  * @return 0 on success, negative error code on failure
  */
+
+ 12. Check for memory leaks using valgrind, and try to nullify all the memory leaks including still reachable blocks.

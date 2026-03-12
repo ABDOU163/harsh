@@ -171,8 +171,7 @@ static int inject_args(char **tokens, char **alias_args, int alias_argc){
         }
     }
 
-    // Success: free the original tokens[0] that was replaced
-    free(saved_token0);
+    // Success: saved_token0 is still in the shifted array and will be freed by free_tokens()
     return 0;
 }
 
