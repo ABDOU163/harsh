@@ -12,41 +12,49 @@
 #include <readline/history.h>
 
 /**
- * Tokenize and execute a shell command line.
- * Applies history expansion (!! !n !-n !string) before tokenizing.
- * Parses the command into tokens, scans for operators, and dispatches
- * execution through the operator hierarchy (;/& → &&/|| → | → redirects).
- * @param command Raw command string from user input (modified in-place by strtok)
+ * Perform history expansion on a command string.
+ * Handles !!, !n, !-n, !string. Must be called BEFORE add_history.
+ * @param command Raw command string from user input
+ * @return Heap-allocated string to execute (caller must free), or NULL if
+ *         the command should not be executed (error or display-only)
  */
-void execute(char *command){
-    // History expansion: !!, !n, !-n, !string
-    // MUST run BEFORE add_history, otherwise !! would resolve to itself.
-    // ret: -1 = error, 0 = no expansion, 1 = expanded, 2 = display only (don't run)
+char* expand_history(const char *command){
     char *expanded = NULL;
-    int ret = history_expand(command, &expanded);
+    int ret = history_expand((char*)command, &expanded);
     if (ret == 2){
-        // e.g. ":p" modifier — print the expansion but don't execute
         printf("%s\n", expanded);
         free(expanded);
-        return;
+        return NULL;
     }
     if (ret < 0){
         fprintf(stderr, "%s\n", expanded);
         free(expanded);
-        return;
+        return NULL;
     }
-    char *to_run = (ret == 1) ? expanded : command;
+    if (ret == 0){
+        free(expanded);
+        return strdup(command);
+    }
+    // ret == 1: expansion happened, return the expanded string
+    return expanded;
+}
 
-    // Add to history AFTER expansion:
-    // - If expanded, add the expanded form (e.g. "echo hello" not "!!")
-    // - If no expansion, add the original command
+
+/**
+ * Tokenize and execute a shell command line.
+ * Pipeline: history expansion → add to history → tokenize → scan → dispatch.
+ * @param command Raw command string from user input (not modified)
+ */
+void execute(char *command){
+    char *to_run = expand_history(command);
+    if (to_run == NULL) return;
+
     add_history(to_run);
 
     char **tokens = tokenize(to_run);
-    if (ret == 1) free(expanded);
-    if (tokens == NULL){
-        return;
-    }
+    free(to_run);
+    if (tokens == NULL) return;
+
     int total = 0;
     while (tokens[total] != NULL) total++;
     ops_t ops;

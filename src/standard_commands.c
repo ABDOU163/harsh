@@ -8,277 +8,67 @@
 #include <sys/wait.h>
 #include <signal.h>
 
-// ---- Alias manager (global) ----
+// ---- Directory stack ----
 
-alias_manager_t aliases = {0};
+#define INIT_DIRSTACK_CAPACITY 8
+
+typedef struct {
+    char **dirs;
+    int count;
+    int capacity;
+} dirstack_t;
+
+static dirstack_t dirstack = {0};
 
 /**
- * Initialize the alias table with hardcoded defaults and load ~/.harshrc.
- * Order: hardcoded defaults → .harshrc aliases.
+ * Initialize the directory stack.
  * @return 0 on success, -1 on allocation failure
  */
-int init_alias_table(){
-    aliases.capacity = INIT_ALIAS_CAPACITY;
-    aliases.count = 0;
-    aliases.table = malloc(aliases.capacity * sizeof(alias_t));
-    if (aliases.table == NULL){
-        perror("malloc: alias table");
+int init_dirstack(){
+    dirstack.capacity = INIT_DIRSTACK_CAPACITY;
+    dirstack.count = 0;
+    dirstack.dirs = malloc(dirstack.capacity * sizeof(char*));
+    if (dirstack.dirs == NULL){
+        perror("malloc: dirstack");
         return -1;
     }
-
-    // Hardcoded defaults
-    char *ls_args[] = {"ls", "--color=auto", NULL};
-    char *grep_args[] = {"grep", "--color=auto", NULL};
-    add_alias("ls", ls_args, 2);
-    add_alias("grep", grep_args, 2);
-
-    // Load config file
-    load_harshrc();
-
     return 0;
 }
 
-// ---- Alias table management ----
-
 /**
- * Add or update an alias in the alias table.
- * If an alias with the same name exists, it is replaced.
- * If the table is full, it is reallocated to double capacity.
- * @param name   Alias name (will be strdup'd)
- * @param args   NULL-terminated array of replacement args (each will be strdup'd)
- * @param count  Number of args (not counting NULL)
+ * Push a directory onto the stack.
+ * @param dir Directory path (will be strdup'd)
  * @return 0 on success, -1 on allocation failure
  */
-int add_alias(const char *name, char **args, int count){
-    // Check if alias already exists → update
-    for (int i = 0; i < aliases.count; i++){
-        if (strcmp(aliases.table[i].name, name) == 0){
-            // Free old args
-            for (int j = 0; j < aliases.table[i].args_count; j++){
-                free(aliases.table[i].args[j]);
-            }
-            free(aliases.table[i].args);
-
-            // Allocate new args
-            aliases.table[i].args = malloc((count + 1) * sizeof(char*));
-            if (aliases.table[i].args == NULL){
-                perror("malloc: alias args");
-                return -1;
-            }
-            for (int j = 0; j < count; j++){
-                aliases.table[i].args[j] = strdup(args[j]);
-                if (aliases.table[i].args[j] == NULL){
-                    perror("strdup: alias arg");
-                    return -1;
-                }
-            }
-            aliases.table[i].args[count] = NULL;
-            aliases.table[i].args_count = count;
-            return 0;
-        }
-    }
-
-    // Grow table if needed
-    if (aliases.count >= aliases.capacity){
-        int new_cap = aliases.capacity * 2;
-        alias_t *new_table = realloc(aliases.table, new_cap * sizeof(alias_t));
-        if (new_table == NULL){
-            perror("realloc: alias table");
+static int dirstack_push(const char *dir){
+    if (dirstack.count >= dirstack.capacity){
+        int new_cap = dirstack.capacity * 2;
+        char **new_dirs = realloc(dirstack.dirs, new_cap * sizeof(char*));
+        if (new_dirs == NULL){
+            perror("realloc: dirstack");
             return -1;
         }
-        aliases.table = new_table;
-        aliases.capacity = new_cap;
+        dirstack.dirs = new_dirs;
+        dirstack.capacity = new_cap;
     }
-
-    // Add new entry 
-    alias_t *entry = &aliases.table[aliases.count];
-    entry->name = strdup(name);
-    if (entry->name == NULL){
-        perror("strdup: alias name");
+    dirstack.dirs[dirstack.count] = strdup(dir);
+    if (dirstack.dirs[dirstack.count] == NULL){
+        perror("strdup: dirstack");
         return -1;
     }
-    entry->args = malloc((count + 1) * sizeof(char*));
-    if (entry->args == NULL){
-        perror("malloc: alias args");
-        free(entry->name);
-        return -1;
-    }
-    for (int i = 0; i < count; i++){
-        entry->args[i] = strdup(args[i]);
-        if (entry->args[i] == NULL){
-            perror("strdup: alias arg");
-            // Cleanup partial
-            for (int j = 0; j < i; j++) free(entry->args[j]);
-            free(entry->args);
-            free(entry->name);
-            return -1;
-        }
-    }
-    entry->args[count] = NULL;
-    entry->args_count = count;
-    aliases.count++;
-    return 0;
-}
-
-// ---- Alias argument injection ----
-
-/**
- * Inject alias replacement args into the token array.
- * Replaces tokens[0] and shifts existing user args right to make room
- * for the alias args. Uses memmove for the shift.
- *
- * Example: alias ll = {"ls", "-la", NULL}
- *   Before: ["ll", "foo/", NULL]
- *   After:  ["ls", "-la", "foo/", NULL]
- *
- * @param tokens     Token array (fixed size MAX_TOKENS_LIMIT + 1)
- * @param alias_args NULL-terminated replacement args
- * @param alias_argc Number of alias args (not counting NULL)
- * @return 0 on success, -1 if tokens would exceed MAX_TOKENS_LIMIT
- */
-static int inject_args(char **tokens, char **alias_args, int alias_argc){
-    // Count current tokens
-    int total = 0;
-    while (tokens[total] != NULL) total++;
-
-    // Extra args to insert (alias_argc - 1, since alias_args[0] replaces tokens[0])
-    int extra = alias_argc - 1;
-
-    if (total + extra > MAX_TOKENS_LIMIT){
-        fprintf(stderr, "%s: too many arguments after alias expansion\n", tokens[0]);
-        return -1;
-    }
-
-    // Free the old tokens[0] (the alias name typed by user)
-    free(tokens[0]);
-
-    // Shift tokens[1..total] right by 'extra' positions (including NULL terminator)
-    // total count includes tokens[0], so tokens[1..total-1] are user args, tokens[total] is NULL
-    // We move (total) elements: tokens[1] through tokens[total] (the NULL)
-    if (extra > 0){
-        memmove(&tokens[1 + extra], &tokens[1], sizeof(char*) * total);
-    }
-
-    // Insert alias args (strdup each)
-    for (int i = 0; i < alias_argc; i++){
-        tokens[i] = strdup(alias_args[i]);
-        if (tokens[i] == NULL){
-            perror("strdup: inject alias arg");
-            return -1;
-        }
-    }
-
+    dirstack.count++;
     return 0;
 }
 
 /**
- * Look up tokens[0] in the alias table and apply alias expansion.
- * @param tokens Token array
- * @return 0 on success (or no alias matched), -1 on error
+ * Pop a directory from the stack.
+ * @return Heap-allocated directory string (caller must free), or NULL if empty
  */
-int apply_aliases(char **tokens){
-    for (int i = 0; i < aliases.count; i++){
-        if (strcmp(tokens[0], aliases.table[i].name) == 0){
-            return inject_args(tokens, aliases.table[i].args, aliases.table[i].args_count);
-        }
-    }
-    return 0;
+static char* dirstack_pop(){
+    if (dirstack.count == 0) return NULL;
+    dirstack.count--;
+    return dirstack.dirs[dirstack.count];
 }
-
-// ---- alias command (interactive + .harshrc) ----
-
-/**
- * Handle the alias builtin command.
- * Usage:
- *   alias              → print all aliases
- *   alias name cmd ... → define alias 'name' as 'cmd ...'
- *
- * @param tokens NULL-terminated token array where tokens[0] is "alias"
- * @return 0 on success, 1 on error
- */
-int alias_command(char **tokens){
-    // No args: print all aliases
-    if (tokens[1] == NULL){
-        for (int i = 0; i < aliases.count; i++){
-            printf("alias %s='", aliases.table[i].name);
-            for (int j = 0; j < aliases.table[i].args_count; j++){
-                if (j > 0) printf(" ");
-                printf("%s", aliases.table[i].args[j]);
-            }
-            printf("'\n");
-        }
-        return 0;
-    }
-
-    // Need at least: alias name cmd
-    if (tokens[2] == NULL){
-        fprintf(stderr, "alias: usage: alias name command [args...]\n");
-        return 1;
-    }
-
-    // tokens[1] = alias name, tokens[2..] = replacement command + args
-    char *name = tokens[1];
-    char **args = &tokens[2];
-    int count = 0;
-    while (args[count] != NULL) count++;
-
-    if (add_alias(name, args, count) != 0){
-        fprintf(stderr, "alias: failed to add alias '%s'\n", name);
-        return 1;
-    }
-    return 0;
-}
-
-// ---- .harshrc loading ----
-
-/**
- * Load aliases from ~/.harshrc config file.
- * Each line is tokenized; lines starting with "alias" are processed
- * as alias commands. Lines starting with '#' and empty lines are skipped.
- * @return 0 on success, -1 on error (file not found is not an error)
- */
-int load_harshrc(){
-    char *home = getenv("HOME");
-    if (home == NULL) return 0;
-
-    char path[512];
-    snprintf(path, sizeof(path), "%s/.harshrc", home);
-
-    FILE *fp = fopen(path, "r");
-    if (fp == NULL){
-        // No config file is fine, not an error
-        return 0;
-    }
-
-    char line[1024];
-    while (fgets(line, sizeof(line), fp) != NULL){
-        // Skip empty lines and comments
-        if (line[0] == '\n' || line[0] == '#') continue;
-
-        // Remove trailing newline
-        size_t len = strlen(line);
-        if (len > 0 && line[len - 1] == '\n') line[len - 1] = '\0';
-
-        // Tokenize the line using the shell's tokenizer
-        char *line_copy = strdup(line);
-        if (line_copy == NULL) continue;
-
-        char **tokens = tokenize(line_copy);
-        free(line_copy);
-        if (tokens == NULL) continue;
-
-        // Process alias lines
-        if (tokens[0] != NULL && strcmp(tokens[0], "alias") == 0){
-            alias_command(tokens);
-        }
-
-        free_tokens(tokens);
-    }
-
-    fclose(fp);
-    return 0;
-}
-
 
 // ---- Builtins ----
 
@@ -290,10 +80,10 @@ int load_harshrc(){
 int cd_handler(char **tokens){
     if (tokens[1] == NULL){
         fprintf(stderr, "cd: expected argument\n");
-        return 1;
+        return -1;
     } else if (tokens[2] != NULL){
         fprintf(stderr, "cd: too many arguments\n");
-        return 1;
+        return -1;
     }
     
     // Try to change directory
@@ -302,33 +92,127 @@ int cd_handler(char **tokens){
         memset(error_msg, 0, sizeof(error_msg));
         snprintf(error_msg, sizeof(error_msg), "cd: %s", tokens[1]);
         perror(error_msg);
-        return 1;
+        return -1;
     }
     return 0;
 }
 
+/**
+ * Handle the pushd builtin: push current directory onto the stack, then cd.
+ * Usage: pushd <dir>
+ * @param tokens NULL-terminated token array where tokens[0] is "pushd"
+ * @return 0 on success, 1 on error
+ */
+int pushd_handler(char **tokens){
+    if (tokens[1] == NULL){
+        fprintf(stderr, "pushd: expected argument\n");
+        return -1;
+    }
+
+    char cwd[512];
+    if (getcwd(cwd, sizeof(cwd)) == NULL){
+        perror("pushd: getcwd");
+        return -1;
+    }
+
+    // Try cd first, only push if it succeeds
+    if (cd_handler(tokens) != 0){
+        return -1;
+    }
+
+    if (dirstack_push(cwd) != 0){
+        fprintf(stderr, "pushd: failed to save directory\n");
+        return -1;
+    }
+
+    return 0;
+}
 
 /**
- * Execute a command in a forked child process.
- * Handles built-ins (exit, cd) directly; for external commands, applies
- * alias expansion and then replaces the process image with execvp.
- * @param tokens NULL-terminated token array where tokens[0] is the command
+ * Handle the popd builtin: pop directory from stack and cd to it.
+ * Usage: popd
+ * @param tokens NULL-terminated token array where tokens[0] is "popd"
+ * @return 0 on success, 1 on error (empty stack, chdir failure)
  */
-void exec_standard(char **tokens){
-    if (strcmp(tokens[0], "exit")==0){
-        _exit(0);
-    }
-    if (strcmp(tokens[0], "cd")==0){
-        cd_handler(tokens);
-        return;
-    }
-    if (strcmp(tokens[0], "alias")==0){
-        alias_command(tokens);
-        return;
+int popd_handler(char **tokens){
+    char *dir = dirstack_pop();
+    if (dir == NULL){
+        fprintf(stderr, "popd: directory stack empty\n");
+        return -1;
     }
 
+    if (chdir(dir) != 0){
+        char error_msg[512];
+        snprintf(error_msg, sizeof(error_msg), "popd: %s", dir);
+        perror(error_msg);
+        free(dir);
+        return -1;
+    }
+
+    free(dir);
+    return 0;
+}
+
+// ---- Command dispatch ----
+
+/**
+ * Check if a command is a shell builtin that must run in the parent process.
+ * @param cmd Command name (tokens[0])
+ * @return true if cmd is a builtin
+ */
+bool is_builtin(const char *cmd){
+    return strcmp(cmd, "cd") == 0 ||
+           strcmp(cmd, "exit") == 0 ||
+           strcmp(cmd, "alias") == 0 ||
+           strcmp(cmd, "pushd") == 0 ||
+           strcmp(cmd, "popd") == 0;
+}
+
+/**
+ * Execute a builtin command in the parent shell process.
+ * Must only be called for commands where is_builtin() returns true.
+ * @param tokens NULL-terminated token array where tokens[0] is the builtin
+ * @return 0 on success, non-zero on error (exit never returns)
+ */
+int exec_builtin(char **tokens){
+    if (strcmp(tokens[0], "exit") == 0){
+        exit(0);
+    }
+    if (strcmp(tokens[0], "cd") == 0){
+        return cd_handler(tokens);
+    }
+    if (strcmp(tokens[0], "alias") == 0){
+        return alias_command(tokens);
+    }
+    if (strcmp(tokens[0], "pushd") == 0){
+        return pushd_handler(tokens);
+    }
+    if (strcmp(tokens[0], "popd") == 0){
+        return popd_handler(tokens);
+    }
+    return -1;
+}
+
+/**
+ * Execute an external command by replacing the process image with execvp.
+ * This function does not return on success. Must be called in a forked child.
+ * @param tokens NULL-terminated token array where tokens[0] is the command
+ */
+void exec_external(char **tokens){
     execvp(tokens[0], tokens);
-    // If execvp returns, there was an error
     perror(tokens[0]);
     _exit(EXIT_FAILURE);
+}
+
+/**
+ * Dispatch a command: builtins run in-process, externals via execvp.
+ * @param tokens NULL-terminated token array where tokens[0] is the command
+ * @return builtin return code, or does not return for external commands
+ */
+int exec_standard(char **tokens){
+    if (is_builtin(tokens[0])){
+        return exec_builtin(tokens);
+    }
+    exec_external(tokens);
+    return -1; // unreachable, exec_external does not return
 }

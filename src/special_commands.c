@@ -109,7 +109,7 @@ int setup_redirect_execute(char **tokens, int *redir_positions, int redir_count,
         }
     }
     if (cmd_tokens[0] != NULL){
-        exec_standard(cmd_tokens);
+        return exec_standard(cmd_tokens);
     }
     return 0;
 }
@@ -190,13 +190,12 @@ int multiple_redirects_run(char **tokens, ops_t *ops, int start, int end){
         } else {
             wait(&status);
         }
-    } else if (strcmp(cmd_tokens[0], "exit") == 0 || strcmp(cmd_tokens[0], "cd") == 0 || strcmp(cmd_tokens[0], "alias") == 0){
+    } else if (is_builtin(cmd_tokens[0])){
         // Built-in: run in parent with saved/restored fds
         int fds[3];
         if (save_fds(fds) < 0) return -1;
-        int ret = setup_redirect_execute(tokens, redir_positions, redir_count, cmd_tokens);
+        status = setup_redirect_execute(tokens, redir_positions, redir_count, cmd_tokens);
         if (restore_fds(fds) < 0) return -1;
-        if (ret < 0) status = -1;
     } else {
         // External command: fork and exec
         pid_t pid = fork();

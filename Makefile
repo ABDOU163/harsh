@@ -26,7 +26,7 @@ clean:
 
 # Test rule: use valgrind for testing for heap exploits
 vg:
-	@valgrind --trace-children=yes \
+	@valgrind --trace-children=no \
 	--leak-check=full \
 	--show-leak-kinds=definite,indirect,possible \
 	--track-origins=yes \
@@ -39,7 +39,7 @@ OUT = test.bin
 # --show-leak-kinds=definite,indirect,possible 
 vg-test:
 	@$(CC) $(SRC) -o $(OUT) ; 
-	@valgrind --trace-children=yes --leak-check=full --show-leak-kinds=all --track-origins=yes ./$(OUT)
+	@valgrind --trace-children=no --leak-check=full --show-leak-kinds=all --track-origins=yes ./$(OUT)
 
 run-test:
 	@$(CC) $(SRC) -o $(OUT) ; 

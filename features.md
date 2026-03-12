@@ -14,9 +14,8 @@ Custom Shell Feature Roadmap
 - Handle special characters: * and ? for file matching ✔️
 
 3. Input/Output Redirection ✔️
-- Support '>' for stdout redirection ✔️
-- Support '<' for stdin redirection ✔️
-- Support '>>' for appending ✔️
+- Support stdout, stdin, stderr redirection ✔️
+- Support appending ✔️
 
 4. Pipes and others ✔️
 - Support standard pipes and other operators: ; && || & ✔️
@@ -27,15 +26,12 @@ Custom Shell Feature Roadmap
 
 6. Aliases & Directory Teleportation ✔️
 - Implement alias feature for commands + --color=auto for ls, grep etc... ✔️
-- Implement quick directory jumps (like bookmarks) ✔️ + pushd and popd
+- Implement quick directory jumps (like bookmarks) ✔️
 
 7. Session-Based Checkpoints
-- Save current working directory (cwd) as a checkpoint
-- Restore to a checkpoint later
-- Checkpoints exist only in current shell session
+- pushd and popd ✔️
 
 8. Other Enhancements
-- List all checkpoints
 - History navigation (up/down arrows if you want) and tab completion + !! and !n ✔️
 
 9. fwatch <file_or_dir> with inotify

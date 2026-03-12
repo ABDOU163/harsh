@@ -5,6 +5,7 @@
 #include "globals.h"
 #include "tokenizer.h"
 #include "standard.h"
+#include "alias.h"
 #include "special.h"
 #include <unistd.h>
 #include <sys/types.h>
