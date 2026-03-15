@@ -7,6 +7,8 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <signal.h>
+#include <readline/readline.h>
+#include <readline/history.h>
 
 // ---- Directory stack ----
 
@@ -18,7 +20,7 @@ typedef struct {
     int capacity;
 } dirstack_t;
 
-static dirstack_t dirstack = {0};
+dirstack_t dirstack = {0};
 
 /**
  * Initialize the directory stack.
@@ -28,11 +30,21 @@ int init_dirstack(){
     dirstack.capacity = INIT_DIRSTACK_CAPACITY;
     dirstack.count = 0;
     dirstack.dirs = malloc(dirstack.capacity * sizeof(char*));
+    dirstack.dirs[0] = NULL;
     if (dirstack.dirs == NULL){
         perror("malloc: dirstack");
         return -1;
     }
     return 0;
+}
+
+void free_dirstack(){
+    for (int i = 0; i < dirstack.count; i++)
+        free(dirstack.dirs[i]);
+    free(dirstack.dirs);
+    dirstack.dirs = NULL;
+    dirstack.count = 0;
+    dirstack.capacity = 0;
 }
 
 /**
@@ -150,6 +162,7 @@ int popd_handler(char **tokens){
     }
 
     free(dir);
+    dirstack.dirs[dirstack.count] = NULL;
     return 0;
 }
 
@@ -176,7 +189,11 @@ bool is_builtin(const char *cmd){
  */
 int exec_builtin(char **tokens){
     if (strcmp(tokens[0], "exit") == 0){
-        exit(0);
+        shell_should_exit = true;
+        if (tokens[1] != NULL) {
+            shell_exit_status = atoi(tokens[1]);
+        }
+        return 0;
     }
     if (strcmp(tokens[0], "cd") == 0){
         return cd_handler(tokens);
@@ -195,24 +212,26 @@ int exec_builtin(char **tokens){
 
 /**
  * Execute an external command by replacing the process image with execvp.
- * This function does not return on success. Must be called in a forked child.
+ * On success, this function does not return (process image is replaced).
+ * On failure (command not found), returns -1 so the caller can clean up
+ * heap allocations before calling _exit.
  * @param tokens NULL-terminated token array where tokens[0] is the command
+ * @return -1 on execvp failure (never returns on success)
  */
-void exec_external(char **tokens){
+int exec_external(char **tokens){
     execvp(tokens[0], tokens);
     perror(tokens[0]);
-    _exit(EXIT_FAILURE);
+    return -1;
 }
 
 /**
  * Dispatch a command: builtins run in-process, externals via execvp.
  * @param tokens NULL-terminated token array where tokens[0] is the command
- * @return builtin return code, or does not return for external commands
+ * @return builtin return code, or -1 if external command fails
  */
 int exec_standard(char **tokens){
     if (is_builtin(tokens[0])){
         return exec_builtin(tokens);
     }
-    exec_external(tokens);
-    return -1; // unreachable, exec_external does not return
+    return exec_external(tokens);
 }

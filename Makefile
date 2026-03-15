@@ -28,8 +28,9 @@ clean:
 vg:
 	@valgrind --trace-children=no \
 	--leak-check=full \
-	--show-leak-kinds=definite,indirect,possible \
+	--show-leak-kinds=all \
 	--track-origins=yes \
+	--suppressions=readline.supp \
 	./$(TARGET)
 
 
@@ -39,8 +40,16 @@ OUT = test.bin
 # --show-leak-kinds=definite,indirect,possible 
 vg-test:
 	@$(CC) $(SRC) -o $(OUT) ; 
-	@valgrind --trace-children=no --leak-check=full --show-leak-kinds=all --track-origins=yes ./$(OUT)
+	@valgrind --trace-children=no \
+	--leak-check=full \
+	--show-leak-kinds=definite,indirect,possible \
+	--track-origins=yes \
+	--suppressions=readline.supp \
+	./$(OUT)
 
 run-test:
 	@$(CC) $(SRC) -o $(OUT) ; 
 	@./$(OUT)
+
+test:
+	@chmod +x test.sh && bash test.sh

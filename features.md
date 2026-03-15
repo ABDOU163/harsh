@@ -46,4 +46,4 @@ Custom Shell Feature Roadmap
  * @return 0 on success, negative error code on failure
  */
 
- 12. Check for memory leaks using valgrind, and try to nullify all the memory leaks including still reachable blocks.
+12. Check for memory leaks using valgrind, and try to nullify all the memory leaks including still reachable blocks. ✔️

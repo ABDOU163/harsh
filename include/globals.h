@@ -8,6 +8,9 @@ extern char *special_commands[11];
 extern char *redirects[6];
 extern void free_tokens(char **tokens);
 
+extern bool shell_should_exit;
+extern int shell_exit_status;
+
 typedef struct {
     // Pipe operators: |
     int pipe_pos[MAX_TOKENS_LIMIT];

@@ -4,6 +4,38 @@
 #include <stdbool.h>
 #include "includes.h"
 
+// ---- Tracker for child process cleanup ----
+static void* tracker_ptrs[128];
+static int tracker_count = 0;
+
+static void* tracked_malloc(size_t size) {
+    void *p = malloc(size);
+    if (p && tracker_count < 128) tracker_ptrs[tracker_count++] = p;
+    return p;
+}
+
+static void tracked_free(void *p) {
+    if (!p) return;
+    for (int i = 0; i < tracker_count; i++) {
+        if (tracker_ptrs[i] == p) {
+            tracker_ptrs[i] = tracker_ptrs[--tracker_count];
+            break;
+        }
+    }
+    free(p); // Standard library free
+}
+
+static void free_tracked_memory() {
+    for (int i = 0; i < tracker_count; i++) {
+        free(tracker_ptrs[i]); // Standard library free
+    }
+    tracker_count = 0;
+}
+
+// Redirect all subsequent malloc/free calls in this file
+#define malloc tracked_malloc
+#define free tracked_free
+
 // ---- Redirection helpers ----
 
 /**
@@ -154,16 +186,28 @@ void get_cmd_tokens(char **tokens, ops_t *ops, int start, int end,
 
 /**
  * Handles multiple redirections for a single command segment.
+ * Uses heap-allocated arrays for redir_positions and cmd_tokens to avoid
+ * stack-based buffer vulnerabilities when passed to inject_args/apply_aliases.
  * @param tokens Token array
  * @param ops Pre-scanned operators
  * @param start Start index of segment
  * @param end End index of segment
- * @return Wait status of the child, or -1 on fork failure
+ * @return Wait status of the child, or -1 on fork/alloc failure
  */
 int multiple_redirects_run(char **tokens, ops_t *ops, int start, int end){
-    int redir_positions[MAX_TOKENS_LIMIT];
+    int status = -1;
+    int *redir_positions = malloc(MAX_TOKENS_LIMIT * sizeof(int));
+    if (!redir_positions){
+        perror("malloc: redir_positions");
+        return -1;
+    }
     int redir_count = 0;
-    char *cmd_tokens[MAX_TOKENS_LIMIT + 1];
+    char **cmd_tokens = malloc((MAX_TOKENS_LIMIT + 1) * sizeof(char*));
+    if (!cmd_tokens){
+        perror("malloc: cmd_tokens");
+        free(redir_positions);
+        return -1;
+    }
 
     get_cmd_tokens(tokens, ops, start, end, redir_positions, &redir_count, cmd_tokens);
 
@@ -171,21 +215,28 @@ int multiple_redirects_run(char **tokens, ops_t *ops, int start, int end){
     // This ensures aliased builtins (e.g. "alias back cd ..") are correctly
     // identified as parent-process builtins rather than being forked.
     if (cmd_tokens[0] != NULL){
+
         if (apply_aliases(cmd_tokens) != 0){
-            return -1;
+            status = -1;
+            goto cleanup;
         }
     }
 
-    int status = 0;
+    status = 0;
 
     if (cmd_tokens[0] == NULL){
         // No command, only redirects (e.g. "> file")
         pid_t pid = fork();
         if (pid < 0){
             perror("fork");
-            return -1;
+            status = -1;
+            goto cleanup;
         } else if (pid == 0){
             setup_redirect_execute(tokens, redir_positions, redir_count, cmd_tokens);
+            free_tracked_memory();
+            free_tokens(tokens); 
+            free_alias_table();
+            free_dirstack();
             _exit(0);
         } else {
             wait(&status);
@@ -193,24 +244,36 @@ int multiple_redirects_run(char **tokens, ops_t *ops, int start, int end){
     } else if (is_builtin(cmd_tokens[0])){
         // Built-in: run in parent with saved/restored fds
         int fds[3];
-        if (save_fds(fds) < 0) return -1;
+        if (save_fds(fds) < 0){
+            status = -1;
+        }
         status = setup_redirect_execute(tokens, redir_positions, redir_count, cmd_tokens);
-        if (restore_fds(fds) < 0) return -1;
+        if (restore_fds(fds) < 0){
+            status = -1;
+        }
+        goto cleanup;
     } else {
         // External command: fork and exec
         pid_t pid = fork();
         if (pid < 0){
             perror("fork");
-            return -1;
+            status = -1;
+            goto cleanup;
         } else if (pid == 0){
-            if (setup_redirect_execute(tokens, redir_positions, redir_count, cmd_tokens) < 0){
-                _exit(EXIT_FAILURE);
-            }
-            _exit(0);
+            int ret = setup_redirect_execute(tokens, redir_positions, redir_count, cmd_tokens);
+            free_tracked_memory();
+            free_tokens(tokens);
+            free_alias_table();
+            free_dirstack();
+            _exit(ret < 0 ? EXIT_FAILURE : 0);
         } else {
             wait(&status);
         }
     }
+
+cleanup:
+    free(redir_positions);
+    free(cmd_tokens);
     return status;
 }
 
@@ -218,6 +281,7 @@ int multiple_redirects_run(char **tokens, ops_t *ops, int start, int end){
 
 /**
  * Handles multiple pipe operators within a range.
+ * All internal arrays are heap-allocated to avoid VLA and stack overflow risks.
  * @param tokens Token array
  * @param ops Pre-scanned operators
  * @param start Start index of segment
@@ -225,8 +289,13 @@ int multiple_redirects_run(char **tokens, ops_t *ops, int start, int end){
  * @return Wait status of the last command in pipeline, or -1 on error
  */
 int handle_multiple_pipes(char **tokens, ops_t *ops, int start, int end){
+    int *local_pipes = malloc(MAX_TOKENS_LIMIT * sizeof(int));
+    if (!local_pipes){
+        perror("malloc: local_pipes");
+        return -1;
+    }
+
     // Collect pipe positions within [start, end)
-    int local_pipes[MAX_TOKENS_LIMIT];
     int pipe_count = 0;
     for (int i = 0; i < ops->pipe_count; i++){
         if (ops->pipe_pos[i] >= start && ops->pipe_pos[i] < end){
@@ -236,14 +305,25 @@ int handle_multiple_pipes(char **tokens, ops_t *ops, int start, int end){
 
     // If no pipes, just run with redirects
     if (pipe_count == 0){
+        free(local_pipes);
         return multiple_redirects_run(tokens, ops, start, end);
     }
 
     int num_segments = pipe_count + 1;
+    int status = -1;
+
+    // Heap-allocate segment boundaries, pipe fds, and pid array
+    int *seg_start = malloc(num_segments * sizeof(int));
+    int *seg_end   = malloc(num_segments * sizeof(int));
+    int (*pipefds)[2] = malloc(pipe_count * sizeof(int[2]));
+    pid_t *pids = malloc(num_segments * sizeof(pid_t));
+
+    if (!seg_start || !seg_end || !pipefds || !pids){
+        perror("malloc: handle_multiple_pipes");
+        goto cleanup;
+    }
 
     // Build segment boundaries: [seg_start[i], seg_end[i])
-    int seg_start[num_segments];
-    int seg_end[num_segments];
     seg_start[0] = start;
     for (int p = 0; p < pipe_count; p++){
         seg_end[p] = local_pipes[p];       // segment ends at the pipe
@@ -252,7 +332,6 @@ int handle_multiple_pipes(char **tokens, ops_t *ops, int start, int end){
     seg_end[num_segments - 1] = end;
 
     // Create pipe fd pairs
-    int pipefds[pipe_count][2];
     for (int i = 0; i < pipe_count; i++){
         if (pipe(pipefds[i]) == -1){
             perror("pipe");
@@ -260,12 +339,11 @@ int handle_multiple_pipes(char **tokens, ops_t *ops, int start, int end){
                 close(pipefds[j][0]);
                 close(pipefds[j][1]);
             }
-            return -1;
+            goto cleanup;
         }
     }
 
     // Fork a child for each segment
-    pid_t pids[num_segments];
     for (int i = 0; i < num_segments; i++){
         pids[i] = fork();
         if (pids[i] < 0){
@@ -277,7 +355,7 @@ int handle_multiple_pipes(char **tokens, ops_t *ops, int start, int end){
             for (int j = 0; j < i; j++){
                 waitpid(pids[j], NULL, 0);
             }
-            return -1;
+            goto cleanup;
         }
         if (pids[i] == 0){
             // If not the first segment, read stdin from previous pipe
@@ -301,15 +379,28 @@ int handle_multiple_pipes(char **tokens, ops_t *ops, int start, int end){
                 close(pipefds[p][1]);
             }
 
-            // Extract redirects and command for this segment, then execute
-            int redir_positions[MAX_TOKENS_LIMIT];
+            // Heap-allocate in child to avoid stack corruption risks
+            int *redir_positions = malloc(MAX_TOKENS_LIMIT * sizeof(int));
             int redir_count = 0;
-            char *cmd_tokens[MAX_TOKENS_LIMIT + 1];
+            char **cmd_tokens = malloc((MAX_TOKENS_LIMIT + 1) * sizeof(char*));
+            if (!redir_positions || !cmd_tokens){
+                perror("malloc: child pipe segment");
+                free_tracked_memory();
+                free_tokens(tokens);
+                free_alias_table();
+                free_dirstack();
+                _exit(EXIT_FAILURE);
+            }
+
             get_cmd_tokens(tokens, ops, seg_start[i], seg_end[i],
                            redir_positions, &redir_count, cmd_tokens);
 
-            setup_redirect_execute(tokens, redir_positions, redir_count, cmd_tokens);
-            _exit(EXIT_FAILURE);
+            int ret = setup_redirect_execute(tokens, redir_positions, redir_count, cmd_tokens);
+            free_tracked_memory();
+            free_tokens(tokens);
+            free_alias_table();
+            free_dirstack();
+            _exit(ret < 0 ? EXIT_FAILURE : 0);
         }
     }
 
@@ -320,10 +411,17 @@ int handle_multiple_pipes(char **tokens, ops_t *ops, int start, int end){
     }
 
     // Wait for all children, capture status of the last one
-    int status = 0;
+    status = 0;
     for (int i = 0; i < num_segments; i++){
         waitpid(pids[i], &status, 0);
     }
+
+cleanup:
+    free(local_pipes);
+    free(seg_start);
+    free(seg_end);
+    free(pipefds);
+    free(pids);
     return status;
 }
 
@@ -331,6 +429,7 @@ int handle_multiple_pipes(char **tokens, ops_t *ops, int start, int end){
 
 /**
  * Handles && and || operators within a range.
+ * All internal arrays are heap-allocated with goto cleanup for safe freeing.
  * @param tokens Token array
  * @param ops Pre-scanned operators
  * @param start Start index
@@ -338,9 +437,18 @@ int handle_multiple_pipes(char **tokens, ops_t *ops, int start, int end){
  * @return Status of the last executed command
  */
 int handle_and_or(char **tokens, ops_t *ops, int start, int end){
+    int status = -1;
+    int *seg_start = NULL;
+    int *seg_end   = NULL;
+
+    int *local_pos   = malloc(MAX_TOKENS_LIMIT * sizeof(int));
+    int *local_types = malloc(MAX_TOKENS_LIMIT * sizeof(int));
+    if (!local_pos || !local_types){
+        perror("malloc: handle_and_or");
+        goto cleanup;
+    }
+
     // Collect && / || positions within [start, end)
-    int local_pos[MAX_TOKENS_LIMIT];
-    int local_types[MAX_TOKENS_LIMIT];
     int local_count = 0;
     for (int i = 0; i < ops->andor_count; i++){
         if (ops->andor_pos[i] >= start && ops->andor_pos[i] < end){
@@ -352,14 +460,21 @@ int handle_and_or(char **tokens, ops_t *ops, int start, int end){
 
     // If no && or ||, just run with pipes
     if (local_count == 0){
+        free(local_pos);
+        free(local_types);
         return handle_multiple_pipes(tokens, ops, start, end);
     }
 
     int num_segments = local_count + 1;
 
     // Build segment boundaries
-    int seg_start[num_segments];
-    int seg_end[num_segments];
+    seg_start = malloc(num_segments * sizeof(int));
+    seg_end   = malloc(num_segments * sizeof(int));
+    if (!seg_start || !seg_end){
+        perror("malloc: handle_and_or segments");
+        goto cleanup;
+    }
+
     seg_start[0] = start;
     for (int p = 0; p < local_count; p++){
         seg_end[p] = local_pos[p];
@@ -368,7 +483,7 @@ int handle_and_or(char **tokens, ops_t *ops, int start, int end){
     seg_end[num_segments - 1] = end;
 
     // Run segments left-to-right, short-circuiting based on operator
-    int status = handle_multiple_pipes(tokens, ops, seg_start[0], seg_end[0]);
+    status = handle_multiple_pipes(tokens, ops, seg_start[0], seg_end[0]);
     for (int i = 0; i < local_count; i++){
         if (local_types[i] == 0){ // &&
             if (status != 0) continue;
@@ -377,6 +492,12 @@ int handle_and_or(char **tokens, ops_t *ops, int start, int end){
         }
         status = handle_multiple_pipes(tokens, ops, seg_start[i + 1], seg_end[i + 1]);
     }
+
+cleanup:
+    free(local_pos);
+    free(local_types);
+    free(seg_start);
+    free(seg_end);
     return status;
 }
 
@@ -384,6 +505,7 @@ int handle_and_or(char **tokens, ops_t *ops, int start, int end){
 
 /**
  * Handles ; and & top-level operators.
+ * All internal arrays are heap-allocated with goto cleanup for safe freeing.
  * @param tokens Token array
  * @param ops Pre-scanned operators
  * @param start Start index
@@ -391,11 +513,20 @@ int handle_and_or(char **tokens, ops_t *ops, int start, int end){
  * @return Status of the last foreground command
  */
 int special_commands_run(char **tokens, ops_t *ops, int start, int end){
+    int status = -1;
+    int *seg_start = NULL;
+    int *seg_end   = NULL;
+
     // Collect ; / & positions within [start, end)
-    // no need for it in the current version, but will be useful if we add 
+    // no need for it in the current version, but will be useful if we add
     // higher precedance special operators
-    int local_pos[MAX_TOKENS_LIMIT];
-    int local_types[MAX_TOKENS_LIMIT];
+    int *local_pos   = malloc(MAX_TOKENS_LIMIT * sizeof(int));
+    int *local_types = malloc(MAX_TOKENS_LIMIT * sizeof(int));
+    if (!local_pos || !local_types){
+        perror("malloc: special_commands_run");
+        goto cleanup;
+    }
+
     int local_count = 0;
     for (int i = 0; i < ops->seqbg_count; i++){
         if (ops->seqbg_pos[i] >= start && ops->seqbg_pos[i] < end){
@@ -407,14 +538,21 @@ int special_commands_run(char **tokens, ops_t *ops, int start, int end){
 
     // If no ; or &, just run with and/or
     if (local_count == 0){
+        free(local_pos);
+        free(local_types);
         return handle_and_or(tokens, ops, start, end);
     }
 
     int num_segments = local_count + 1;
 
     // Build segment boundaries
-    int seg_start[num_segments];
-    int seg_end[num_segments];
+    seg_start = malloc(num_segments * sizeof(int));
+    seg_end   = malloc(num_segments * sizeof(int));
+    if (!seg_start || !seg_end){
+        perror("malloc: special_commands_run segments");
+        goto cleanup;
+    }
+
     seg_start[0] = start;
     for (int p = 0; p < local_count; p++){
         seg_end[p] = local_pos[p];
@@ -423,7 +561,7 @@ int special_commands_run(char **tokens, ops_t *ops, int start, int end){
     seg_end[num_segments - 1] = end;
 
     // Run each segment according to the operator that follows it
-    int status = 0;
+    status = 0;
     for (int i = 0; i < num_segments; i++){
         // Skip empty segments (e.g. trailing ; or &)
         if (seg_start[i] >= seg_end[i]) continue;
@@ -432,10 +570,15 @@ int special_commands_run(char **tokens, ops_t *ops, int start, int end){
             pid_t pid = fork();
             if (pid < 0){
                 perror("fork");
-                return -1;
+                status = -1;
+                goto cleanup;
             }
             if (pid == 0){
                 handle_and_or(tokens, ops, seg_start[i], seg_end[i]);
+                free_tracked_memory();
+                free_tokens(tokens);
+                free_alias_table();
+                free_dirstack();
                 _exit(0);
             }
             // parent does not wait — background
@@ -443,5 +586,15 @@ int special_commands_run(char **tokens, ops_t *ops, int start, int end){
             status = handle_and_or(tokens, ops, seg_start[i], seg_end[i]);
         }
     }
+
+cleanup:
+    free(local_pos);
+    free(local_types);
+    free(seg_start);
+    free(seg_end);
     return status;
+}
+
+void command_run(char **tokens, ops_t *ops, int start, int end){
+    special_commands_run(tokens, ops, start, end);
 }

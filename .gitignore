@@ -7,6 +7,5 @@
 *.py
 *.cpp
 *.txt
-*test*
 *harsh*
-# *errors*
+test.c

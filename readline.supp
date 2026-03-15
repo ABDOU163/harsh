@@ -1,0 +1,14 @@
+{
+   readline_initialize
+   Memcheck:Leak
+   match-leak-kinds: reachable
+   ...
+   obj:*/libreadline.so*
+}
+{
+   libtinfo_initialize
+   Memcheck:Leak
+   match-leak-kinds: reachable
+   ...
+   obj:*/libtinfo.so*
+}

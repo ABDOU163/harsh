@@ -23,16 +23,21 @@ int init_alias_table(){
         return -1;
     }
 
-    // Hardcoded defaults
-    char *ls_args[] = {"ls", "--color=auto", NULL};
-    char *grep_args[] = {"grep", "--color=auto", NULL};
-    add_alias("ls", ls_args, 2);
-    add_alias("grep", grep_args, 2);
-
     // Load config file
     load_harshrc();
 
     return 0;
+}
+
+void free_alias_table(){
+    for (int i = 0; i < aliases.count; i++){
+        free(aliases.table[i].name);
+        for (int j = 0; j < aliases.table[i].args_count; j++){
+            free(aliases.table[i].args[j]);
+        }
+        free(aliases.table[i].args);
+    }
+    free(aliases.table);
 }
 
 // ---- Alias table management ----
@@ -156,19 +161,7 @@ static int inject_args(char **tokens, char **alias_args, int alias_argc){
 
     // Insert alias args (strdup each)
     for (int i = 0; i < alias_argc; i++){
-        tokens[i] = strdup(alias_args[i]);
-        if (tokens[i] == NULL){
-            perror("strdup: inject alias arg");
-            // Free successfully strdup'd args
-            for (int j = 0; j < i; j++) free(tokens[j]);
-            // Shift tokens back to original positions
-            if (extra > 0){
-                memmove(&tokens[1], &tokens[1 + extra], sizeof(char*) * total);
-            }
-            // Restore original tokens[0]
-            tokens[0] = saved_token0;
-            return -1;
-        }
+        tokens[i] = alias_args[i];
     }
 
     // Success: saved_token0 is still in the shifted array and will be freed by free_tokens()

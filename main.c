@@ -11,6 +11,9 @@
 #include <readline/readline.h>
 #include <readline/history.h>
 
+bool shell_should_exit = false;
+int shell_exit_status = 0;
+
 /**
  * Perform history expansion on a command string.
  * Handles !!, !n, !-n, !string. Must be called BEFORE add_history.
@@ -59,7 +62,7 @@ void execute(char *command){
     while (tokens[total] != NULL) total++;
     ops_t ops;
     scan_operators(tokens, &ops);
-    special_commands_run(tokens, &ops, 0, total);
+    command_run(tokens, &ops, 0, total);
     free_tokens(tokens);
 }
 
@@ -111,6 +114,10 @@ char* build_prompt(){
  */
 int real_main(){
     setvbuf(stdout, NULL, _IONBF, 0);
+    if (init_dirstack() != 0){
+        fprintf(stderr, "Failed to initialize directory stack\n");
+        return 1;
+    }
     if (init_alias_table() != 0){
         fprintf(stderr, "Failed to initialize alias table\n");
         return 1;
@@ -121,26 +128,34 @@ int real_main(){
         char *prompt = build_prompt();
         if (prompt == NULL){
             perror("Failed to build prompt");
+            free(prompt);
             continue;
         }
         char *line = readline(prompt);
+        free(prompt);
         if (line == NULL){
             // EOF (Ctrl+D)
-            free(prompt);
             printf("\n");
+            free(line);
             break;
         }
         if (*line == '\0'){
-            free(prompt);
             free(line);
             continue;
         }
         execute(line);
         free(line);
-        free(prompt);
+        if (shell_should_exit) {
+            break;
+        }
     }
-    
-    return 0;
+    // Cleanup readline internals
+    rl_clear_history();
+    rl_free_line_state();
+    rl_cleanup_after_signal();
+    free_alias_table();
+    free_dirstack();
+    return shell_exit_status;
 }
 
 

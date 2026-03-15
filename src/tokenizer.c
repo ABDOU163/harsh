@@ -146,16 +146,25 @@ char** tokenize(char *command) {
                         return NULL;
                     }
                     char *dup = strdup(glob_result.gl_pathv[i]);
-                    if (!dup) { fprintf(stderr, "Allocation error\n"); globfree(&glob_result); free_tokens(tokens); return NULL; }
                     tokens[position++] = dup;
+                    if (!dup) { fprintf(stderr, "Allocation error\n"); globfree(&glob_result); free_tokens(tokens); return NULL; }
                 }
                 globfree(&glob_result);
             } else if (ret == GLOB_NOMATCH){
                 char *dup = strdup(processed_token);
-                if (!dup) { fprintf(stderr, "Allocation error\n"); free_tokens(tokens); return NULL; }
                 tokens[position++] = dup;
+                globfree(&glob_result);
+                if (!dup) { 
+                    fprintf(stderr, "Allocation error\n");
+                    free_tokens(tokens); 
+                    return NULL; 
+                }
             } else {
                 fprintf(stderr, "Glob error: %s\n", ret==1 ? "GLOB_NOSPACE" : "GLOB_ABORTED");
+                globfree(&glob_result); 
+                tokens[position] = NULL;
+                free_tokens(tokens);
+                return NULL;
             }
         }
         
