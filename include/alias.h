@@ -21,6 +21,7 @@ int init_alias_table();
 int add_alias(const char *name, char **args, int count);
 int apply_aliases(char **tokens);
 int alias_command(char **tokens);
+int unalias_command(char **tokens);
 int load_harshrc();
 void free_alias_table();
 

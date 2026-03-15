@@ -20,7 +20,7 @@ Harsh goes beyond a simple `fork()`/`exec()` loop and fully supports complex sta
 
 ### Shell Builtins & Environment
 - **Directory Stack**: Full `pushd` and `popd` implementation for fast directory stack manipulation, alongside the standard `cd`.
-- **Alias Management**: Define aliases on the fly (`alias ll ls -la`), execute them and print them. 
+- **Alias Management**: Define aliases on the fly (`alias ll ls -la`), execute them recursively, and print them. 
 - **Initialization Script**: Automatically locates, loads, and parses `~/.harshrc` on startup to inject defaults.
 - **Line Editing**: Arrow-key navigation, reverse-i-search, tab-completion, and history powered by GNU `readline`.
 

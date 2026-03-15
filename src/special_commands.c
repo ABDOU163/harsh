@@ -36,6 +36,13 @@ static void free_tracked_memory() {
 #define malloc tracked_malloc
 #define free tracked_free
 
+void free_on_exit(char **tokens){
+    free_tracked_memory();
+    free_tokens(tokens);
+    free_alias_table();
+    free_dirstack();
+}
+
 // ---- Redirection helpers ----
 
 /**
@@ -233,10 +240,7 @@ int multiple_redirects_run(char **tokens, ops_t *ops, int start, int end){
             goto cleanup;
         } else if (pid == 0){
             setup_redirect_execute(tokens, redir_positions, redir_count, cmd_tokens);
-            free_tracked_memory();
-            free_tokens(tokens); 
-            free_alias_table();
-            free_dirstack();
+            free_on_exit(tokens);
             _exit(0);
         } else {
             wait(&status);
@@ -261,10 +265,7 @@ int multiple_redirects_run(char **tokens, ops_t *ops, int start, int end){
             goto cleanup;
         } else if (pid == 0){
             int ret = setup_redirect_execute(tokens, redir_positions, redir_count, cmd_tokens);
-            free_tracked_memory();
-            free_tokens(tokens);
-            free_alias_table();
-            free_dirstack();
+            free_on_exit(tokens);
             _exit(ret < 0 ? EXIT_FAILURE : 0);
         } else {
             wait(&status);
@@ -385,10 +386,7 @@ int handle_multiple_pipes(char **tokens, ops_t *ops, int start, int end){
             char **cmd_tokens = malloc((MAX_TOKENS_LIMIT + 1) * sizeof(char*));
             if (!redir_positions || !cmd_tokens){
                 perror("malloc: child pipe segment");
-                free_tracked_memory();
-                free_tokens(tokens);
-                free_alias_table();
-                free_dirstack();
+                free_on_exit(tokens);
                 _exit(EXIT_FAILURE);
             }
 
@@ -396,10 +394,7 @@ int handle_multiple_pipes(char **tokens, ops_t *ops, int start, int end){
                            redir_positions, &redir_count, cmd_tokens);
 
             int ret = setup_redirect_execute(tokens, redir_positions, redir_count, cmd_tokens);
-            free_tracked_memory();
-            free_tokens(tokens);
-            free_alias_table();
-            free_dirstack();
+            free_on_exit(tokens);
             _exit(ret < 0 ? EXIT_FAILURE : 0);
         }
     }
@@ -575,10 +570,7 @@ int special_commands_run(char **tokens, ops_t *ops, int start, int end){
             }
             if (pid == 0){
                 handle_and_or(tokens, ops, seg_start[i], seg_end[i]);
-                free_tracked_memory();
-                free_tokens(tokens);
-                free_alias_table();
-                free_dirstack();
+                free_on_exit(tokens);
                 _exit(0);
             }
             // parent does not wait — background

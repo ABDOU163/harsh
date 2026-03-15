@@ -168,15 +168,49 @@ static int inject_args(char **tokens, char **alias_args, int alias_argc){
     return 0;
 }
 
-/**
- * Look up tokens[0] in the alias table and apply alias expansion.
- * @param tokens Token array
- * @return 0 on success (or no alias matched), -1 on error
- */
 int apply_aliases(char **tokens){
-    for (int i = 0; i < aliases.count; i++){
-        if (strcmp(tokens[0], aliases.table[i].name) == 0){
-            return inject_args(tokens, aliases.table[i].args, aliases.table[i].args_count);
+    if (tokens[0] == NULL) return 0;
+
+    int applied[MAX_TOKENS_LIMIT];
+    for (int i = 0; i < MAX_TOKENS_LIMIT; i++) {
+        applied[i] = -1;
+    }
+    int applied_count = 0;
+
+    bool expanded = true;
+    while (expanded && tokens[0] != NULL) {
+        expanded = false;
+        
+        for (int i = 0; i < aliases.count; i++){
+            // Check if tokens[0] matches the alias name
+            if (strcmp(tokens[0], aliases.table[i].name) == 0){
+                
+                // Check if this alias has already been applied in this chain
+                bool cycle_detected = false;
+                for (int j = 0; j < applied_count; j++) {
+                    if (applied[j] == i) {
+                        cycle_detected = true;
+                        break;
+                    }
+                }
+                
+                // If it's a cycle, we stop expanding and just use the current tokens
+                if (cycle_detected) {
+                    break;
+                }
+
+                // Inject arguments starting at index 0
+                if (inject_args(tokens, aliases.table[i].args, aliases.table[i].args_count) != 0) {
+                    return -1; // MAX_TOKENS_LIMIT exceeded
+                }
+                
+                // Mark this alias as applied
+                applied[applied_count++] = i;
+                
+                // Set expanded to true so the while loop runs again on the NEW tokens[0]
+                expanded = true;
+                break; // Break the for loop, restart the while loop
+            }
         }
     }
     return 0;
@@ -224,6 +258,52 @@ int alias_command(char **tokens){
         return 1;
     }
     return 0;
+}
+
+/**
+ * Handle the unalias builtin command.
+ * Usage: unalias name [name ...]
+ * @param tokens NULL-terminated token array where tokens[0] is "unalias"
+ * @return 0 on success, 1 on error
+ */
+int unalias_command(char **tokens){
+    if (tokens[1] == NULL){
+        fprintf(stderr, "unalias: usage: unalias [name ...]\n");
+        return 1;
+    }
+
+    int ret = 0;
+    for (int i = 1; tokens[i] != NULL; i++) {
+        char *name = tokens[i];
+        bool found = false;
+
+        for (int j = 0; j < aliases.count; j++) {
+            if (strcmp(aliases.table[j].name, name) == 0) {
+                // Free the alias memory
+                free(aliases.table[j].name);
+                for (int k = 0; k < aliases.table[j].args_count; k++) {
+                    free(aliases.table[j].args[k]);
+                }
+                free(aliases.table[j].args);
+
+                // Shift the rest of the array left by 1
+                for (int k = j; k < aliases.count - 1; k++) {
+                    aliases.table[k] = aliases.table[k + 1];
+                }
+
+                aliases.count--;
+                found = true;
+                break;
+            }
+        }
+
+        if (!found) {
+            fprintf(stderr, "unalias: %s: not found\n", name);
+            ret = 1;
+        }
+    }
+
+    return ret;
 }
 
 // ---- .harshrc loading ----

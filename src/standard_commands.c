@@ -177,6 +177,7 @@ bool is_builtin(const char *cmd){
     return strcmp(cmd, "cd") == 0 ||
            strcmp(cmd, "exit") == 0 ||
            strcmp(cmd, "alias") == 0 ||
+           strcmp(cmd, "unalias") == 0 ||
            strcmp(cmd, "pushd") == 0 ||
            strcmp(cmd, "popd") == 0;
 }
@@ -200,6 +201,9 @@ int exec_builtin(char **tokens){
     }
     if (strcmp(tokens[0], "alias") == 0){
         return alias_command(tokens);
+    }
+    if (strcmp(tokens[0], "unalias") == 0){
+        return unalias_command(tokens);
     }
     if (strcmp(tokens[0], "pushd") == 0){
         return pushd_handler(tokens);

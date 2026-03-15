@@ -83,6 +83,9 @@ run_test "many background jobs" \
 run_test "alias recursion attempt (should stop)" \
     "alias a='a' ; a"
 
+run_test "alias cyclic loop (should break cycle)" \
+    "alias a='b' ; alias b='a' ; a"
+
 run_test "history bomb" \
     "echo 1\n!!\n!!\n!!\n!!\n!!\n!!\n!!\n!!\n!!\n!!"
 
