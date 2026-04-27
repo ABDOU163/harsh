@@ -4,4 +4,5 @@
 char** tokenize(char *command);
 void remove_trailing_spaces(char *str);
 char* tilde_expander(char *token);
+char  **glob_expansion(char **tokens);
 #endif

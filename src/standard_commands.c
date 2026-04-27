@@ -234,8 +234,8 @@ int exec_external(char **tokens){
  * @return builtin return code, or -1 if external command fails
  */
 int exec_standard(char **tokens){
-    if (is_builtin(tokens[0])){
-        return exec_builtin(tokens);
-    }
-    return exec_external(tokens);
+    char **globbed = glob_expansion(tokens);
+    int res = is_builtin(globbed[0]) ? exec_builtin(globbed) : exec_external(globbed);
+    free_tokens(globbed);
+    return res;
 }

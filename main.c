@@ -116,11 +116,11 @@ int real_main(){
     setvbuf(stdout, NULL, _IONBF, 0);
     if (init_dirstack() != 0){
         fprintf(stderr, "Failed to initialize directory stack\n");
-        return 1;
+        return -1;
     }
     if (init_alias_table() != 0){
         fprintf(stderr, "Failed to initialize alias table\n");
-        return 1;
+        return -1;
     }
     stifle_history(HISTORY_LENGTH);
     while (true)
