@@ -30,7 +30,8 @@ char* tilde_expander(char *token) {
     
     // If no tilde found, return original token
     if (!tilde_pos) {
-        return token;
+        // printf("Tilde was not found\n");
+        return strdup(token);
     }
     if (tilde_pos != token){
         home+=1;
@@ -41,8 +42,7 @@ char* tilde_expander(char *token) {
     
     char* new_str = malloc(new_len);
     if (!new_str) {
-        fprintf(stderr, "Error: malloc failed\n");
-        return token;  // Return original on failure
+        return NULL;
     }
     
     // Copy part before ~
@@ -131,6 +131,7 @@ char* postprocess_token(char *token, char **idx, int *count, int size, bool *quo
  * @return NULL-terminated array of heap-allocated token strings, or NULL on error
  */
 char** tokenize(char *command) {
+    // printf("%s\n", command);
     remove_trailing_spaces(command);
     char **tokens = malloc((MAX_TOKENS_LIMIT + 1) * sizeof(char*));
     int position = 0;

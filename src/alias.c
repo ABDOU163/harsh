@@ -218,16 +218,21 @@ int apply_aliases(char **tokens){
 
 // ---- alias command (interactive + .harshrc) ----
 
-int valid_alias_command(char *token, char *name, char *cmd){
+int valid_alias_command(char *token, char **name, char **cmd){
     char *p=strchr(token, '=');
     if (!p || (p-token == 0) || (p[1] != '"') || (p[strlen(p)-1] != '"')){
         fprintf(stderr, "alias: usage: alias name=\"command [args...]\"\n");
         return -1;
     }
+    token[strlen(token)-1]= '\0';
     *p='\0';
-    name = token;
-    cmd = p+2;
-    cmd[strlen(cmd)-1]= '\0';
+    *name = strdup(token);
+    *cmd = strdup(p+2);
+    if (!*name || !*cmd){
+        free(*name);
+        free(*cmd);
+        return -1;
+    }
     return 0;
 }
 
@@ -241,6 +246,9 @@ int valid_alias_command(char *token, char *name, char *cmd){
  * @return 0 on success, 1 on error
  */
 int alias_command(char **tokens){
+    if (tokens[0] == NULL){
+        return 0;
+    }
     // No args: print all aliases
     if (tokens[1] == NULL){
         for (int i = 0; i < aliases.count; i++){
@@ -253,13 +261,11 @@ int alias_command(char **tokens){
         }
         return 0;
     }
-
-    // usage: fprintf(stderr, "alias: usage: alias name=\"command [args...]\"\n");
     for (int j=1; tokens[j] != NULL; j++){
         char *name;
         char *cmd;
         int count;
-        if (valid_alias_command(tokens[j], name, cmd) != 0){
+        if (valid_alias_command(tokens[j], &name, &cmd) != 0){
             printf("%s: not found", tokens[j]);
             continue;
         }
@@ -356,14 +362,9 @@ int load_harshrc(){
         // Tokenize the line using the shell's tokenizer
         char *line_copy = strdup(line);
         if (line_copy == NULL) continue;
-
         char **tokens = tokenize(line_copy);
         free(line_copy);
         if (tokens == NULL) continue;
-        for (int i=0; tokens[i]; i++){
-            printf("%s\n", tokens[i]);
-        }
-
         // Process alias lines
         if (tokens[0] != NULL && strcmp(tokens[0], "alias") == 0){
             alias_command(tokens);
