@@ -36,9 +36,12 @@ Custom Shell Feature Roadmap
 
 9. fwatch <file_or_dir> with inotify
 
-10. jobs, fg, bg
-
-11. code docs like linux kernel, example: ✔️
+10. Job control
+- jobs, fg, bg
+  
+11. Variable assignement, expansion and command substitution, + environment variables
+  
+12. code docs like linux kernel, example: ✔️
 /**
  * Gets a string value.
  * @param input Input value
