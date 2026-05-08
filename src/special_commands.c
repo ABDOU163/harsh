@@ -8,12 +8,19 @@
 static void* tracker_ptrs[128];
 static int tracker_count = 0;
 
+/**
+ * Allocate memory and remember it so a forked child can release local helper
+ * allocations before exiting without disturbing the parent.
+ */
 static void* tracked_malloc(size_t size) {
     void *p = malloc(size);
     if (p && tracker_count < 128) tracker_ptrs[tracker_count++] = p;
     return p;
 }
 
+/**
+ * Free memory allocated through tracked_malloc and remove it from the tracker.
+ */
 static void tracked_free(void *p) {
     if (!p) return;
     for (int i = 0; i < tracker_count; i++) {
@@ -25,6 +32,9 @@ static void tracked_free(void *p) {
     free(p); // Standard library free
 }
 
+/**
+ * Free every allocation still registered for the current process.
+ */
 static void free_tracked_memory() {
     for (int i = 0; i < tracker_count; i++) {
         free(tracker_ptrs[i]); // Standard library free
@@ -36,6 +46,10 @@ static void free_tracked_memory() {
 #define malloc tracked_malloc
 #define free tracked_free
 
+/**
+ * Release shell-owned resources from a child process before _exit().
+ * @param tokens Main token array for the current command line
+ */
 void free_on_exit(char **tokens){
     free_tracked_memory();
     free_tokens(tokens);
@@ -84,7 +98,7 @@ int setup_redirection_fd(char **tokens, int redir_pos){
     }
 
     if (fd < 0){
-        perror("File open error");
+        perror(filename);
         return -1;
     }
     if (dup2(fd, to_fd) < 0){
@@ -93,7 +107,7 @@ int setup_redirection_fd(char **tokens, int redir_pos){
         return -1;
     }
     if (close(fd) < 0){
-        perror("File close error");
+        perror("close: redirect file");
         return -1;
     }
     return 0;
@@ -105,11 +119,20 @@ int setup_redirection_fd(char **tokens, int redir_pos){
  * @return 0 on success, -1 on failure
  */
 int save_fds(int *saved_fds){
+    saved_fds[0] = -1;
+    saved_fds[1] = -1;
+    saved_fds[2] = -1;
     saved_fds[0] = dup(STDIN_FILENO);
     saved_fds[1] = dup(STDOUT_FILENO);
     saved_fds[2] = dup(STDERR_FILENO);
     if (saved_fds[0] < 0 || saved_fds[1] < 0 || saved_fds[2] < 0){
-        perror("Failed to save file descriptors");
+        perror("dup: save file descriptors");
+        for (int i = 0; i < 3; i++){
+            if (saved_fds[i] >= 0){
+                close(saved_fds[i]);
+                saved_fds[i] = -1;
+            }
+        }
         return -1;
     }
     return 0;
@@ -122,11 +145,11 @@ int save_fds(int *saved_fds){
  */
 int restore_fds(int *saved_fds){
     if (dup2(saved_fds[0], STDIN_FILENO) < 0 || dup2(saved_fds[1], STDOUT_FILENO) < 0 || dup2(saved_fds[2], STDERR_FILENO) < 0){
-        perror("Failed to restore file descriptors");
+        perror("dup2: restore file descriptors");
         return -1;
     }
     if (close(saved_fds[0]) < 0 || close(saved_fds[1]) < 0 || close(saved_fds[2]) < 0){
-        perror("Failed to close file descriptors");
+        perror("close: saved file descriptors");
         return -1;
     }
     return 0;
@@ -143,7 +166,6 @@ int restore_fds(int *saved_fds){
 int setup_redirect_execute(char **tokens, int *redir_positions, int redir_count, char **cmd_tokens){
     for (int i = 0; i < redir_count; i++){
         if (setup_redirection_fd(tokens, redir_positions[i]) < 0){
-            fprintf(stderr, "Redirection setup failed: %s\n", tokens[redir_positions[i]]);
             return -1;
         }
     }
@@ -194,7 +216,7 @@ void get_cmd_tokens(char **tokens, ops_t *ops, int start, int end,
 /**
  * Handles multiple redirections for a single command segment.
  * Uses heap-allocated arrays for redir_positions and cmd_tokens to avoid
- * stack-based buffer vulnerabilities when passed to inject_args/apply_aliases.
+ * stack-based buffer vulnerabilities.
  * @param tokens Token array
  * @param ops Pre-scanned operators
  * @param start Start index of segment
@@ -218,17 +240,6 @@ int multiple_redirects_run(char **tokens, ops_t *ops, int start, int end){
 
     get_cmd_tokens(tokens, ops, start, end, redir_positions, &redir_count, cmd_tokens);
 
-    // Apply alias expansion BEFORE the builtin/fork decision.
-    // This ensures aliased builtins (e.g. "alias back cd ..") are correctly
-    // identified as parent-process builtins rather than being forked.
-    if (cmd_tokens[0] != NULL){
-
-        if (apply_aliases(cmd_tokens) != 0){
-            status = -1;
-            goto cleanup;
-        }
-    }
-
     status = 0;
 
     if (cmd_tokens[0] == NULL){
@@ -250,6 +261,7 @@ int multiple_redirects_run(char **tokens, ops_t *ops, int start, int end){
         int fds[3];
         if (save_fds(fds) < 0){
             status = -1;
+            goto cleanup;
         }
         status = setup_redirect_execute(tokens, redir_positions, redir_count, cmd_tokens);
         if (restore_fds(fds) < 0){
@@ -587,6 +599,13 @@ cleanup:
     return status;
 }
 
+/**
+ * Entry point for executing a pre-tokenized command line.
+ * @param tokens Full command token array
+ * @param ops Pre-scanned operator table
+ * @param start Inclusive start index
+ * @param end Exclusive end index
+ */
 void command_run(char **tokens, ops_t *ops, int start, int end){
     special_commands_run(tokens, ops, start, end);
 }

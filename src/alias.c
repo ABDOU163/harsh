@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include "includes.h"
 #include <unistd.h>
+#include <errno.h>
 
 // ---- Alias manager (global) ----
 
@@ -24,12 +25,21 @@ int init_alias_table(){
     }
 
     // Load config file
-    load_harshrc();
+    if (load_harshrc() != 0){
+        free_alias_table();
+        return -1;
+    }
 
     return 0;
 }
 
+/**
+ * Free the alias table and every alias name/replacement it owns.
+ */
 void free_alias_table(){
+    if (aliases.table == NULL){
+        return;
+    }
     for (int i = 0; i < aliases.count; i++){
         free(aliases.table[i].name);
         for (int j = 0; j < aliases.table[i].args_count; j++){
@@ -38,6 +48,9 @@ void free_alias_table(){
         free(aliases.table[i].args);
     }
     free(aliases.table);
+    aliases.table = NULL;
+    aliases.count = 0;
+    aliases.capacity = 0;
 }
 
 // ---- Alias table management ----
@@ -122,102 +135,219 @@ int add_alias(const char *name, char **args, int count){
     return 0;
 }
 
-// ---- Alias argument injection ----
+// ---- Alias expansion ----
 
 /**
- * Inject alias replacement args into the token array.
- * Replaces tokens[0] and shifts existing user args right to make room
- * for the alias args. Uses memmove for the shift.
+ * Replace one command-position token with an alias value.
  *
  * Example: alias ll = {"ls", "-la", NULL}
- *   Before: ["ll", "foo/", NULL]
- *   After:  ["ls", "-la", "foo/", NULL]
+ *   Before: ["echo", "x", ";", "ll", "foo/", NULL]
+ *   After:  ["echo", "x", ";", "ls", "-la", "foo/", NULL]
  *
- * @param tokens     Token array (fixed size MAX_TOKENS_LIMIT + 1)
- * @param alias_args NULL-terminated replacement args
- * @param alias_argc Number of alias args (not counting NULL)
+ * The main token array owns its strings, so alias replacement words are
+ * duplicated here instead of borrowing pointers from the alias table.
+ *
+ * @param tokens Token array (fixed size MAX_TOKENS_LIMIT + 1)
+ * @param pos    Index of the token to replace
+ * @param entry  Alias entry to inject
  * @return 0 on success, -1 if tokens would exceed MAX_TOKENS_LIMIT
  */
-static int inject_args(char **tokens, char **alias_args, int alias_argc){
-    // Count current tokens
+static int replace_with_alias(char **tokens, int pos, alias_t *entry){
     int total = 0;
     while (tokens[total] != NULL) total++;
 
-    // Extra args to insert (alias_argc - 1, since alias_args[0] replaces tokens[0])
+    int alias_argc = entry->args_count;
     int extra = alias_argc - 1;
-
     if (total + extra > MAX_TOKENS_LIMIT){
-        fprintf(stderr, "%s: too many arguments after alias expansion\n", tokens[0]);
+        fprintf(stderr, "%s: too many arguments after alias expansion\n", tokens[pos]);
         return -1;
     }
 
-    // Save original tokens[0] so we can restore on failure
-    char *saved_token0 = tokens[0];
-
-    // Shift tokens[1..total] right by 'extra' positions (including NULL terminator)
-    if (extra > 0){
-        memmove(&tokens[1 + extra], &tokens[1], sizeof(char*) * total);
+    char **copies = NULL;
+    if (alias_argc > 0){
+        copies = malloc(alias_argc * sizeof(char*));
+        if (copies == NULL){
+            perror("malloc: alias expansion");
+            return -1;
+        }
+        for (int i = 0; i < alias_argc; i++){
+            copies[i] = strdup(entry->args[i]);
+            if (copies[i] == NULL){
+                perror("strdup: alias expansion");
+                for (int j = 0; j < i; j++){
+                    free(copies[j]);
+                }
+                free(copies);
+                return -1;
+            }
+        }
     }
 
-    // Insert alias args (strdup each)
+    free(tokens[pos]);
+    if (alias_argc == 0){
+        memmove(&tokens[pos], &tokens[pos + 1], sizeof(char*) * (total - pos));
+        return 0;
+    }
+
+    if (extra != 0){
+        memmove(&tokens[pos + alias_argc], &tokens[pos + 1],
+                sizeof(char*) * (total - pos));
+    }
+
     for (int i = 0; i < alias_argc; i++){
-        tokens[i] = alias_args[i];
+        tokens[pos + i] = copies[i];
     }
-
-    // Success: saved_token0 is still in the shifted array and will be freed by free_tokens()
+    free(copies);
     return 0;
 }
 
-int apply_aliases(char **tokens){
-    if (tokens[0] == NULL) return 0;
-
-    int applied[MAX_TOKENS_LIMIT];
-    for (int i = 0; i < MAX_TOKENS_LIMIT; i++) {
-        applied[i] = -1;
+/**
+ * Find an alias by name in the global alias table.
+ * @param name Alias name to look up
+ * @return Alias table index, or -1 if not found
+ */
+static int find_alias(const char *name){
+    for (int i = 0; i < aliases.count; i++){
+        if (strcmp(name, aliases.table[i].name) == 0){
+            return i;
+        }
     }
+    return -1;
+}
+
+/**
+ * Check whether an alias was already expanded in the current expansion chain.
+ * @param applied Alias indices already expanded
+ * @param applied_count Number of valid entries in applied
+ * @param alias_idx Alias index to search for
+ * @return true if alias_idx was already applied
+ */
+static bool has_applied_alias(int *applied, int applied_count, int alias_idx){
+    for (int i = 0; i < applied_count; i++){
+        if (applied[i] == alias_idx){
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * Test whether a token starts a new simple command.
+ * @param token Token text
+ * @return true for operators after which aliases may expand again
+ */
+static bool is_command_separator(const char *token){
+    return strcmp(token, "|") == 0 ||
+           strcmp(token, ";") == 0 ||
+           strcmp(token, "&") == 0 ||
+           strcmp(token, "&&") == 0 ||
+           strcmp(token, "||") == 0;
+}
+
+/**
+ * Test whether a token is a redirection operator.
+ * @param token Token text
+ * @return true if token is one of the supported redirection operators
+ */
+static bool is_redirect_operator(const char *token){
+    for (int i = 0; redirects[i] != NULL; i++){
+        if (strcmp(token, redirects[i]) == 0){
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * Expand chained aliases at a single command-word position.
+ * Stops if the next alias would repeat an alias already used in the chain.
+ * @param tokens Main token array
+ * @param pos Command-word index to expand
+ * @return 0 on success, -1 on allocation/size failure
+ */
+static int expand_command_word(char **tokens, int pos){
+    int applied[MAX_TOKENS_LIMIT];
     int applied_count = 0;
 
-    bool expanded = true;
-    while (expanded && tokens[0] != NULL) {
-        expanded = false;
-        
-        for (int i = 0; i < aliases.count; i++){
-            // Check if tokens[0] matches the alias name
-            if (strcmp(tokens[0], aliases.table[i].name) == 0){
-                
-                // Check if this alias has already been applied in this chain
-                bool cycle_detected = false;
-                for (int j = 0; j < applied_count; j++) {
-                    if (applied[j] == i) {
-                        cycle_detected = true;
-                        break;
-                    }
-                }
-                
-                // If it's a cycle, we stop expanding and just use the current tokens
-                if (cycle_detected) {
-                    break;
-                }
+    while (tokens[pos] != NULL){
+        int alias_idx = find_alias(tokens[pos]);
+        if (alias_idx < 0){
+            break;
+        }
+        if (has_applied_alias(applied, applied_count, alias_idx)){
+            break;
+        }
+        if (applied_count >= MAX_TOKENS_LIMIT){
+            fprintf(stderr, "%s: too many nested aliases\n", tokens[pos]);
+            return -1;
+        }
 
-                // Inject arguments starting at index 0
-                if (inject_args(tokens, aliases.table[i].args, aliases.table[i].args_count) != 0) {
-                    return -1; // MAX_TOKENS_LIMIT exceeded
-                }
-                
-                // Mark this alias as applied
-                applied[applied_count++] = i;
-                
-                // Set expanded to true so the while loop runs again on the NEW tokens[0]
-                expanded = true;
-                break; // Break the for loop, restart the while loop
-            }
+        applied[applied_count++] = alias_idx;
+        if (replace_with_alias(tokens, pos, &aliases.table[alias_idx]) != 0){
+            return -1;
         }
     }
     return 0;
 }
 
+/**
+ * Expand aliases across a whole command line before operator scanning.
+ * Only command-word positions are expanded, matching the important Bash rule:
+ * arguments such as the "x" in "echo x" are not alias candidates.
+ * @param tokens Main token array
+ * @return 0 on success, -1 on expansion failure
+ */
+int apply_aliases(char **tokens){
+    bool command_position = true;
+
+    for (int i = 0; tokens[i] != NULL; ){
+        if (is_command_separator(tokens[i])){
+            command_position = true;
+            i++;
+            continue;
+        }
+
+        if (is_redirect_operator(tokens[i])){
+            i++;
+            if (tokens[i] != NULL){
+                i++;
+            }
+            continue;
+        }
+
+        if (!command_position){
+            i++;
+            continue;
+        }
+
+        if (expand_command_word(tokens, i) != 0){
+            return -1;
+        }
+
+        if (tokens[i] == NULL){
+            break;
+        }
+
+        if (is_command_separator(tokens[i]) || is_redirect_operator(tokens[i])){
+            continue;
+        }
+
+        command_position = false;
+        i++;
+    }
+
+    return 0;
+}
+
 // ---- alias command (interactive + .harshrc) ----
 
+/**
+ * Parse one alias definition token of the form name="command [args...]".
+ * @param token Mutable definition token
+ * @param name Output alias name, heap-allocated on success
+ * @param cmd Output command string, heap-allocated on success
+ * @return 0 on success, -1 on invalid syntax or allocation failure
+ */
 int valid_alias_command(char *token, char **name, char **cmd){
     char *p=strchr(token, '=');
     if (!p || (p-token == 0) || (p[1] != '"') || (p[strlen(p)-1] != '"')){
@@ -227,10 +357,15 @@ int valid_alias_command(char *token, char **name, char **cmd){
     token[strlen(token)-1]= '\0';
     *p='\0';
     *name = strdup(token);
+    if (*name == NULL){
+        perror("strdup: alias name");
+        return -1;
+    }
     *cmd = strdup(p+2);
-    if (!*name || !*cmd){
+    if (*cmd == NULL){
+        perror("strdup: alias command");
         free(*name);
-        free(*cmd);
+        *name = NULL;
         return -1;
     }
     return 0;
@@ -266,19 +401,24 @@ int alias_command(char **tokens){
         char *cmd;
         int count;
         if (valid_alias_command(tokens[j], &name, &cmd) != 0){
-            printf("%s: not found", tokens[j]);
             continue;
         }
         char **cmd_args = tokenize(cmd);
         if (!cmd_args){
-            fprintf(stderr, "Failed to alias command: %s\n", cmd);
+            free(name);
+            free(cmd);
             continue;
         }
         for (count=0; cmd_args[count] != NULL; count++);
         if (add_alias(name, cmd_args, count) != 0){
-            fprintf(stderr, "alias: failed to add alias '%s'\n", name);
+            free_tokens(cmd_args);
+            free(name);
+            free(cmd);
             return -1;
         }
+        free_tokens(cmd_args);
+        free(name);
+        free(cmd);
     }
     return 0;
 }
@@ -347,6 +487,10 @@ int load_harshrc(){
     FILE *fp = fopen(path, "r");
     if (fp == NULL){
         // No config file is fine, not an error
+        if (errno != ENOENT){
+            perror(path);
+            return -1;
+        }
         return 0;
     }
 
@@ -361,7 +505,10 @@ int load_harshrc(){
 
         // Tokenize the line using the shell's tokenizer
         char *line_copy = strdup(line);
-        if (line_copy == NULL) continue;
+        if (line_copy == NULL){
+            perror("strdup: harshrc line");
+            continue;
+        }
         char **tokens = tokenize(line_copy);
         free(line_copy);
         if (tokens == NULL) continue;

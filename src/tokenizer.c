@@ -19,19 +19,33 @@ void remove_trailing_spaces(char *str) {
 }
 
 
+/**
+ * Expand a tilde in an unquoted token, returning a heap-owned string.
+ * If HOME is unavailable or no tilde is present, the original token text is
+ * duplicated unchanged so callers can always free the result safely.
+ * @param token Token text to expand
+ * @return Heap-allocated expanded token, or NULL on allocation failure
+ */
 char* tilde_expander(char *token) {
     char* home = getenv("HOME");
     if (!home) {
         fprintf(stderr, "Warning: HOME environment variable not set\n");
-        return token;  // Return original token if HOME not set
+        char *copy = strdup(token);
+        if (copy == NULL){
+            perror("strdup: tilde fallback");
+        }
+        return copy;
     }
     
     char* tilde_pos = strchr(token, '~');
     
     // If no tilde found, return original token
     if (!tilde_pos) {
-        // printf("Tilde was not found\n");
-        return strdup(token);
+        char *copy = strdup(token);
+        if (copy == NULL){
+            perror("strdup: token");
+        }
+        return copy;
     }
     if (tilde_pos != token){
         home+=1;
@@ -42,6 +56,7 @@ char* tilde_expander(char *token) {
     
     char* new_str = malloc(new_len);
     if (!new_str) {
+        perror("malloc: tilde expansion");
         return NULL;
     }
     
@@ -140,7 +155,7 @@ char** tokenize(char *command) {
     bool quotes;
     
     if (!tokens) {
-        fprintf(stderr, "Allocation error\n");
+        perror("malloc: tokens");
         return NULL;
     }
 
@@ -165,13 +180,20 @@ char** tokenize(char *command) {
             // in this case, the token in the command is wrapped in quotes
             // as in: ... "..." ...
             char *dup = strdup(processed_token);
-            if (!dup) { fprintf(stderr, "Allocation error\n"); free_tokens(tokens); return NULL; }
+            if (!dup) {
+                perror("strdup: quoted token");
+                free_tokens(tokens);
+                return NULL;
+            }
             tokens[position++] = dup;
         } else {
             // apply only tilde expansion
             // leave globbing for later ( because of aliasing, so we need to do glob just before executing)
             char *expanded = tilde_expander(processed_token);
-            if (!expanded) {fprintf(stderr, "Allocation error\n"); free_tokens(tokens); return NULL;}
+            if (!expanded) {
+                free_tokens(tokens);
+                return NULL;
+            }
             tokens[position++] = expanded;
         }
         
@@ -194,6 +216,10 @@ char** tokenize(char *command) {
  */
 char  **glob_expansion(char **tokens){
     char **res=malloc(sizeof(char*) * (MAX_TOKENS_LIMIT+1));
+    if (res == NULL){
+        perror("malloc: glob expansion");
+        return NULL;
+    }
     int position = 0;
     for (int j=0; tokens[j] != NULL; j++){
         glob_t glob_result;
@@ -203,29 +229,39 @@ char  **glob_expansion(char **tokens){
                 if (position >= MAX_TOKENS_LIMIT) {
                     fprintf(stderr, "Too many tokens (glob expansion)\n");
                     globfree(&glob_result);
+                    res[position] = NULL;
                     free_tokens(res);
                     return NULL;
                 }
                 char *dup = strdup(glob_result.gl_pathv[i]);
+                if (!dup) {
+                    perror("strdup: glob result");
+                    globfree(&glob_result);
+                    res[position] = NULL;
+                    free_tokens(res);
+                    return NULL;
+                }
                 res[position++] = dup;
-                if (!dup) { fprintf(stderr, "Allocation error\n"); globfree(&glob_result); free_tokens(tokens); return NULL; }
             }
             globfree(&glob_result);
         } else if (ret == GLOB_NOMATCH){
             if (position >= MAX_TOKENS_LIMIT) {
                 fprintf(stderr, "Too many tokens (glob expansion)\n");
                 globfree(&glob_result);
+                res[position] = NULL;
                 free_tokens(res);
                 return NULL;
             }
             char *dup = strdup(tokens[j]);
-            res[position++] = dup;
-            globfree(&glob_result);
             if (!dup) { 
-                fprintf(stderr, "Allocation error\n");
+                perror("strdup: glob token");
+                globfree(&glob_result);
+                res[position] = NULL;
                 free_tokens(res); 
                 return NULL; 
             }
+            res[position++] = dup;
+            globfree(&glob_result);
         } else {
             fprintf(stderr, "Glob error: %s\n", ret==1 ? "GLOB_NOSPACE" : "GLOB_ABORTED");
             globfree(&glob_result); 

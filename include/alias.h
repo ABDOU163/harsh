@@ -19,6 +19,7 @@ extern alias_manager_t aliases;
 
 int init_alias_table();
 int add_alias(const char *name, char **args, int count);
+// Expand aliases in command-word positions before operator scanning.
 int apply_aliases(char **tokens);
 int alias_command(char **tokens);
 int unalias_command(char **tokens);

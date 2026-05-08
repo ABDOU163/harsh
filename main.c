@@ -36,7 +36,11 @@ char* expand_history(const char *command){
     }
     if (ret == 0){
         free(expanded);
-        return strdup(command);
+        char *copy = strdup(command);
+        if (copy == NULL){
+            perror("strdup: history command");
+        }
+        return copy;
     }
     // ret == 1: expansion happened, return the expanded string
     return expanded;
@@ -45,7 +49,7 @@ char* expand_history(const char *command){
 
 /**
  * Tokenize and execute a shell command line.
- * Pipeline: history expansion → add to history → tokenize → scan → dispatch.
+ * Pipeline: history expansion → add to history → tokenize → aliases → scan → dispatch.
  * @param command Raw command string from user input (not modified)
  */
 void execute(char *command){
@@ -57,6 +61,11 @@ void execute(char *command){
     char **tokens = tokenize(to_run);
     free(to_run);
     if (tokens == NULL) return;
+
+    if (apply_aliases(tokens) != 0){
+        free_tokens(tokens);
+        return;
+    }
 
     int total = 0;
     while (tokens[total] != NULL) total++;
@@ -74,7 +83,10 @@ void execute(char *command){
 char* build_prompt(){
     char prompt[512];
     char hostname[128];
-    gethostname(hostname, sizeof(hostname));
+    if (gethostname(hostname, sizeof(hostname)) != 0){
+        perror("gethostname");
+        strcpy(hostname, "?");
+    }
     char *username = getenv("LOGNAME");
     if (!username) username = "unknown";
     char cwd[128];
@@ -86,8 +98,9 @@ char* build_prompt(){
     // checking so /home/username = ~
     char *temp=cwd;
     char *home = getenv("HOME");
+    if (home == NULL) home = "";
     int home_len = strlen(home);
-    bool is_home = true;
+    bool is_home = home_len > 0;
     int i=0;
     while (is_home && i<home_len){
         if (cwd[i] != home[i]){
@@ -102,7 +115,11 @@ char* build_prompt(){
     }
 
     snprintf(prompt, 512, "%s@%s:%s$ ", username, hostname, temp);
-    return strdup(prompt);
+    char *res = strdup(prompt);
+    if (res == NULL){
+        perror("strdup: prompt");
+    }
+    return res;
 }
 
 
@@ -115,11 +132,10 @@ char* build_prompt(){
 int real_main(){
     setvbuf(stdout, NULL, _IONBF, 0);
     if (init_dirstack() != 0){
-        fprintf(stderr, "Failed to initialize directory stack\n");
         return -1;
     }
     if (init_alias_table() != 0){
-        fprintf(stderr, "Failed to initialize alias table\n");
+        free_dirstack();
         return -1;
     }
     stifle_history(HISTORY_LENGTH);
@@ -127,8 +143,6 @@ int real_main(){
     {
         char *prompt = build_prompt();
         if (prompt == NULL){
-            perror("Failed to build prompt");
-            free(prompt);
             continue;
         }
         char *line = readline(prompt);
@@ -161,9 +175,10 @@ int real_main(){
 
 
 // ------------------------------
-// Test main
-
-
+/**
+ * Scratch test entry point kept out of the normal shell path.
+ * @return 0 after running the local experiment
+ */
 int test_main() {
     char token[33] = "test~*";
     glob_t glob_result;
@@ -181,6 +196,10 @@ int test_main() {
 }
 // ------------------------------
 
+/**
+ * Program entry point. Installs SIGCHLD handling, then starts the shell loop.
+ * @return shell exit status
+ */
 int main(int argc, char *argv[], char *envp[]){
     pid_t child_pid;
     struct sigaction sa;

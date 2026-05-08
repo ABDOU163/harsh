@@ -30,14 +30,17 @@ int init_dirstack(){
     dirstack.capacity = INIT_DIRSTACK_CAPACITY;
     dirstack.count = 0;
     dirstack.dirs = malloc(dirstack.capacity * sizeof(char*));
-    dirstack.dirs[0] = NULL;
     if (dirstack.dirs == NULL){
         perror("malloc: dirstack");
         return -1;
     }
+    dirstack.dirs[0] = NULL;
     return 0;
 }
 
+/**
+ * Free all memory owned by the directory stack and reset it to empty.
+ */
 void free_dirstack(){
     for (int i = 0; i < dirstack.count; i++)
         free(dirstack.dirs[i]);
@@ -133,7 +136,6 @@ int pushd_handler(char **tokens){
     }
 
     if (dirstack_push(cwd) != 0){
-        fprintf(stderr, "pushd: failed to save directory\n");
         return -1;
     }
 
@@ -235,6 +237,9 @@ int exec_external(char **tokens){
  */
 int exec_standard(char **tokens){
     char **globbed = glob_expansion(tokens);
+    if (globbed == NULL){
+        return -1;
+    }
     int res = is_builtin(globbed[0]) ? exec_builtin(globbed) : exec_external(globbed);
     free_tokens(globbed);
     return res;
