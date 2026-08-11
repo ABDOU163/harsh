@@ -16,6 +16,7 @@ Custom Shell Feature Roadmap
 3. Input/Output Redirection ✔️
 - Support stdout, stdin, stderr redirection ✔️
 - Support appending ✔️
+- Support file descriptor redirection (e.g., 2>&1) ✔️
 
 4. Pipes and others ✔️
 - Support standard pipes and other operators: ; && || & ✔️

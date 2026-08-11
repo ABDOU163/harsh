@@ -53,3 +53,33 @@ run-test:
 
 test:
 	@chmod +x test.sh && bash test.sh
+
+
+
+# ----- AFL++ Fuzzing (works with GCC) -----
+afl-build:
+	afl-gcc -fsanitize=address -g -O1 -fno-omit-frame-pointer \
+	        -DFUZZING_MODE -I./include $(SRCS) -o $(TARGET)-afl $(LDLIBS)
+
+afl-run: afl-build
+	mkdir -p input output
+	echo "echo hello" > input/seed.txt
+	afl-fuzz -i input -o output -- ./$(TARGET)-afl
+
+# ----- libFuzzer Fuzzing (requires Clang) -----
+# You must create fuzz_target.c (see above)
+fuzz-lib:
+	clang -fsanitize=address -fsanitize=fuzzer -g -O1 -fno-omit-frame-pointer \
+	      -DFUZZING_MODE -I./include $(SRCS) fuzz_target.c -o $(TARGET)-libfuzz $(LDLIBS)
+
+fuzz-lib-run: fuzz-lib
+	./$(TARGET)-libfuzz -max_total_time=60
+
+# ----- Replay a crash through Valgrind -----
+vg-crash:
+	@valgrind --trace-children=no \
+	--leak-check=full \
+	--show-leak-kinds=all \
+	--track-origins=yes \
+	--suppressions=readline.supp \
+	./$(TARGET) < $(CRASH)

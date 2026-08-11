@@ -11,6 +11,8 @@
 #include <readline/readline.h>
 #include <readline/history.h>
 
+#define FUZZING_MODE 1
+
 bool shell_should_exit = false;
 int shell_exit_status = 0;
 
@@ -56,7 +58,9 @@ void execute(char *command){
     char *to_run = expand_history(command);
     if (to_run == NULL) return;
 
+#ifndef FUZZING_MODE
     add_history(to_run);
+#endif
 
     char **tokens = tokenize(to_run);
     free(to_run);
@@ -129,6 +133,96 @@ char* build_prompt(){
  * Runs until EOF (Ctrl+D) is received.
  * @return 0 on normal exit
  */
+// int real_main(){
+//     setvbuf(stdout, NULL, _IONBF, 0);
+//     if (init_dirstack() != 0){
+//         return -1;
+//     }
+//     if (init_alias_table() != 0){
+//         free_dirstack();
+//         return -1;
+//     }
+//     stifle_history(HISTORY_LENGTH);
+//     while (true)
+//     {
+//         char *prompt = build_prompt();
+//         if (prompt == NULL){
+//             continue;
+//         }
+//         char *line = readline(prompt);
+//         free(prompt);
+//         if (line == NULL){
+//             // EOF (Ctrl+D)
+//             printf("\n");
+//             free(line);
+//             break;
+//         }
+//         if (*line == '\0'){
+//             free(line);
+//             continue;
+//         }
+//         execute(line);
+//         free(line);
+//         if (shell_should_exit) {
+//             break;
+//         }
+//     }
+//     // Cleanup readline internals
+//     rl_clear_history();
+//     rl_free_line_state();
+//     rl_cleanup_after_signal();
+//     free_alias_table();
+//     free_dirstack();
+//     return shell_exit_status;
+// }
+
+
+
+// // ------------------------------
+// /**
+//  * Scratch test entry point kept out of the normal shell path.
+//  * @return 0 after running the local experiment
+//  */
+// int test_main() {
+//     char token[33] = "test~*";
+//     glob_t glob_result;
+//     int ret = glob(token, GLOB_TILDE | GLOB_MARK, NULL, &glob_result);
+//     printf("return is %d\n", ret==GLOB_NOMATCH);
+//     if (ret == 0) {
+//         for (size_t i = 0; i < glob_result.gl_pathc; i++) {
+//             printf("%s\n", glob_result.gl_pathv[i]);
+//         }
+//         globfree(&glob_result);
+//     }
+    
+
+//     return 0;
+// }
+// // ------------------------------
+
+/**
+ * Program entry point. Installs SIGCHLD handling, then starts the shell loop.
+ * @return shell exit status
+ */
+int main(int argc, char *argv[], char *envp[]){
+    pid_t child_pid;
+    struct sigaction sa;
+
+    // Register the signal handler for SIGCHLD
+    sa.sa_handler = SIG_IGN ;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = SA_RESTART | SA_NOCLDWAIT;
+
+    if (sigaction(SIGCHLD, &sa, NULL) == -1)
+    {
+        perror("sigaction");
+        exit(EXIT_FAILURE);
+    }
+    return real_main();
+}
+
+
+
 int real_main(){
     setvbuf(stdout, NULL, _IONBF, 0);
     if (init_dirstack() != 0){
@@ -139,8 +233,29 @@ int real_main(){
         return -1;
     }
     stifle_history(HISTORY_LENGTH);
-    while (true)
-    {
+
+#ifdef FUZZING_MODE
+    // ----- AFL++ / stdin fuzzing mode -----
+    char *line = NULL;
+    size_t len = 0;
+    ssize_t nread;
+
+    while ((nread = getline(&line, &len, stdin)) != -1) {
+        // Remove trailing newline (getline keeps it)
+        if (nread > 0 && line[nread - 1] == '\n') {
+            line[nread - 1] = '\0';
+        }
+        // Skip empty lines
+        if (*line != '\0') {
+            execute(line);
+            if (shell_should_exit) break;
+        }
+    }
+    free(line);
+
+#else
+    // ----- Normal interactive mode -----
+    while (true) {
         char *prompt = build_prompt();
         if (prompt == NULL){
             continue;
@@ -163,56 +278,13 @@ int real_main(){
             break;
         }
     }
-    // Cleanup readline internals
+#endif
+
+    // Cleanup (shared by both modes)
     rl_clear_history();
     rl_free_line_state();
     rl_cleanup_after_signal();
     free_alias_table();
     free_dirstack();
     return shell_exit_status;
-}
-
-
-
-// ------------------------------
-/**
- * Scratch test entry point kept out of the normal shell path.
- * @return 0 after running the local experiment
- */
-int test_main() {
-    char token[33] = "test~*";
-    glob_t glob_result;
-    int ret = glob(token, GLOB_TILDE | GLOB_MARK, NULL, &glob_result);
-    printf("return is %d\n", ret==GLOB_NOMATCH);
-    if (ret == 0) {
-        for (size_t i = 0; i < glob_result.gl_pathc; i++) {
-            printf("%s\n", glob_result.gl_pathv[i]);
-        }
-        globfree(&glob_result);
-    }
-    
-
-    return 0;
-}
-// ------------------------------
-
-/**
- * Program entry point. Installs SIGCHLD handling, then starts the shell loop.
- * @return shell exit status
- */
-int main(int argc, char *argv[], char *envp[]){
-    pid_t child_pid;
-    struct sigaction sa;
-
-    // Register the signal handler for SIGCHLD
-    sa.sa_handler = SIG_IGN ;
-    sigemptyset(&sa.sa_mask);
-    sa.sa_flags = SA_RESTART | SA_NOCLDWAIT;
-
-    if (sigaction(SIGCHLD, &sa, NULL) == -1)
-    {
-        perror("sigaction");
-        exit(EXIT_FAILURE);
-    }
-    return real_main();
 }
