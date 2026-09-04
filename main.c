@@ -149,9 +149,7 @@ int real_main(){
         free(prompt);
         if (line == NULL){
             // EOF (Ctrl+D)
-            printf("\n");
-            free(line);
-            break;
+            continue;
         }
         if (*line == '\0'){
             free(line);
@@ -165,7 +163,7 @@ int real_main(){
     }
     // Cleanup readline internals
     rl_clear_history();
-    rl_free_line_state();
+//    rl_free_line_state();
     rl_cleanup_after_signal();
     free_alias_table();
     free_dirstack();
