@@ -149,7 +149,7 @@ int real_main(){
         free(prompt);
         if (line == NULL){
             // EOF (Ctrl+D)
-            continue;
+            break;
         }
         if (*line == '\0'){
             free(line);
